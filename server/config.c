@@ -116,6 +116,7 @@ AP_DECLARE(int) ap_hook_post_config(ap_HOOK_post_config_t *pf,
                                     const char * const *aszSucc,
                                     int nOrder)
 {
+printf("entered ap_hook_post_config\n");
     ap_LINK_post_config_t *pHook;
 
     if (!_hooks.link_post_config) {
@@ -133,6 +134,7 @@ AP_DECLARE(int) ap_hook_post_config(ap_HOOK_post_config_t *pf,
 
     if (apr_hook_debug_enabled)
         apr_hook_debug_show("post_config", aszPre, aszSucc);
+printf("leaving ap_hook_post_config\n");
 }
 
 AP_DECLARE(apr_array_header_t *) ap_hook_get_post_config(void)

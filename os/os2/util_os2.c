@@ -16,6 +16,9 @@
 
 #define INCL_DOS
 #define INCL_DOSERRORS
+#ifdef __KLIBC__
+#include <os2safe.h>
+#endif
 #include <os2.h>
 #include "ap_config.h"
 #include "httpd.h"
@@ -27,7 +30,6 @@
 #include <string.h>
 #include "apr_strings.h"
 
-
 AP_DECLARE(apr_status_t) ap_os_create_privileged_process(
     const request_rec *r,
     apr_proc_t *newproc, const char *progname,
@@ -37,3 +39,4 @@ AP_DECLARE(apr_status_t) ap_os_create_privileged_process(
 {
     return apr_proc_create(newproc, progname, args, env, attr, p);
 }
+

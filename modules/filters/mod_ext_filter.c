@@ -368,15 +368,15 @@ static apr_status_t set_resource_limits(request_rec *r,
         (core_dir_config *)ap_get_core_module_config(r->per_dir_config);
     apr_status_t rv;
 
-#ifdef RLIMIT_CPU
+#if defined(RLIMIT_CPU) && !defined(OS2)
     rv = apr_procattr_limit_set(procattr, APR_LIMIT_CPU, conf->limit_cpu);
     ap_assert(rv == APR_SUCCESS); /* otherwise, we're out of sync with APR */
 #endif
-#if defined(RLIMIT_DATA) || defined(RLIMIT_VMEM) || defined(RLIMIT_AS)
+#if (defined(RLIMIT_DATA) || defined(RLIMIT_VMEM) || defined(RLIMIT_AS)) && !defined(OS2)
     rv = apr_procattr_limit_set(procattr, APR_LIMIT_MEM, conf->limit_mem);
     ap_assert(rv == APR_SUCCESS); /* otherwise, we're out of sync with APR */
 #endif
-#ifdef RLIMIT_NPROC
+#if defined(RLIMIT_NPROC) && !defined(OS2)
     rv = apr_procattr_limit_set(procattr, APR_LIMIT_NPROC, conf->limit_nproc);
     ap_assert(rv == APR_SUCCESS); /* otherwise, we're out of sync with APR */
 #endif

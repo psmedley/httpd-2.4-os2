@@ -54,6 +54,9 @@
 #include "mpm_common.h"
 #include "scoreboard.h"
 #include "apr_strings.h"
+#ifdef __KLIBC__
+#include <os2safe.h>
+#endif
 #include <os2.h>
 #include <process.h>
 
@@ -68,7 +71,7 @@
 #define HARD_THREAD_LIMIT 256
 #endif
 
-server_rec *ap_server_conf;
+//server_rec *ap_server_conf; // GCC 10+ don't like this
 static apr_pool_t *pconf = NULL;  /* Pool for config stuff */
 
 /* Config globals */
@@ -77,6 +80,7 @@ static int ap_daemons_to_start = 0;
 static int ap_thread_limit = 0;
 int ap_min_spare_threads = 0;
 int ap_max_spare_threads = 0;
+int ap_thread_stack_size = 128 * 1024;
 
 /* Keep track of a few interesting statistics */
 int ap_max_daemons_limit = 0;
@@ -108,16 +112,33 @@ void ap_mpm_child_main(apr_pool_t *pconf);
 static void set_signals();
 
 
+/**
+ * Drive os/2 mpm worker loops
+ * @called by main
+ */
 static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
 {
     char *listener_shm_name;
     parent_info_t *parent_info;
-    ULONG rc;
+    ULONG rc,rv;
     pconf = _pconf;
     ap_server_conf = s;
     restart_pending = 0;
+    ULONG    CurMaxFH      = 0;          /* Current count of handles         */
+    LONG     ReqCount      = 0;          /* Number to adjust file handles    */
+    PID   pidSemaphoreOwner = 0;         /* will get PID of sem owner */
+    TID   tidSemaphoreOwner = 0;         /* will get TID of sem owner */
+    ULONG ulRequestCount;      /* will get the request count for the sem */
 
-    DosSetMaxFH(ap_thread_limit * 2);
+    // DosSetMaxFH(ap_thread_limit * 2);
+
+    rc = DosSetRelMaxFH(&ReqCount,     /* Using 0 here will return the       */
+                        &CurMaxFH);    /* current number of file handles     */
+
+    ReqCount = ap_thread_limit * 2;
+
+    rc = DosSetRelMaxFH(&ReqCount,&CurMaxFH);     /* Change handle maximum */
+
     listener_shm_name = apr_psprintf(pconf, "/sharemem/httpd/parent_info.%d", getppid());
     rc = DosGetNamedSharedMem((PPVOID)&parent_info, listener_shm_name, PAG_READ);
     is_parent_process = rc != 0;
@@ -130,6 +151,7 @@ static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
 
         ap_mpm_accept_mutex = parent_info->accept_mutex;
 
+#if 0 // 2014-12-25 SHL looks like dead code - parent ensures listeners exist - FIXME to be gone
         /* Set up a default listener if necessary */
         if (ap_listeners == NULL) {
             ap_listen_rec *lr = apr_pcalloc(s->process->pool, sizeof(ap_listen_rec));
@@ -139,11 +161,20 @@ static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
             apr_socket_create(&lr->sd, lr->bind_addr->family,
                               SOCK_STREAM, 0, s->process->pool);
         }
+#endif
+        // 2014-12-25 SHL Sync with parent sanity checks
+        if (ap_listeners == NULL) {
+            ap_log_error(APLOG_MARK, APLOG_ALERT, 0, s,
+                         "no listening sockets available, shutting down");
+            return 1;
+        }
 
         for (lr = ap_listeners; lr; lr = lr->next) {
             apr_sockaddr_t *sa;
             apr_os_sock_put(&lr->sd, &parent_info->listeners[num_listeners].listen_fd, pconf);
             apr_socket_addr_get(&sa, APR_LOCAL, lr->sd);
+            // 2014-12-26 SHL Ensure socket_cleanup does not close listen socket owned by parent
+            apr_sock_cleanup_kill(lr->sd);
             num_listeners++;
         }
 
@@ -156,9 +187,13 @@ static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
         return DONE;
     }
     else {
-        /* Parent process */
-        int rc;
+        /* Parent process or DosGetNamedSharedMem problem */
         is_parent_process = TRUE;
+
+        // 2013-03-24 SHL
+        if (rc != ERROR_FILE_NOT_FOUND)
+            ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc), s, APLOGNO(00200)
+                         "DosGetNamedSharedMem returned %d", rc);
 
         if (ap_setup_listeners(ap_server_conf) < 1) {
             ap_log_error(APLOG_MARK, APLOG_ALERT, 0, s, APLOGNO(00200)
@@ -173,7 +208,28 @@ static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
         ap_scoreboard_image->global->running_generation = ap_my_generation;
 
         if (rc != OK) {
+            ULONG rc2;
             ap_remove_pid(pconf, ap_pid_fname);
+#if 1
+            rc2 = DosQueryMutexSem(ap_mpm_accept_mutex,
+                                  &pidSemaphoreOwner,
+                                  &tidSemaphoreOwner,
+                                  &ulRequestCount);
+            // 2013-03-24 SHL was APLOG_INFO
+            if (rc2 == 0)
+                ap_log_error(APLOG_MARK, APLOG_INFO, APR_SUCCESS,
+                             ap_server_conf, "pidSemaphoreOwner = %d, tidSemaphoreOwner = %d, ulRequestCount = %ul",
+                             pidSemaphoreOwner, tidSemaphoreOwner, ulRequestCount);
+
+            // 2013-03-24 SHL
+            else if (rc2 == ERROR_SEM_OWNER_DIED)
+                ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc2),
+                             ap_server_conf, "Sem owner died pidSemaphoreOwner = %d, tidSemaphoreOwner = %d, ulRequestCount = %ul",
+                             pidSemaphoreOwner, tidSemaphoreOwner, ulRequestCount);
+            else
+                ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc2), s,
+                             "DosQueryMutexSem returned %d", rc2);
+#endif
             ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, ap_server_conf, APLOGNO(00201)
                          "caught %s, shutting down",
                          (rc == DONE) ? "SIGTERM" : "error");
@@ -293,7 +349,8 @@ static int master_main()
 
         if (rc == 0) {
             /* A child has terminated, remove its scoreboard entry & terminate if necessary */
-            for (slot=0; ap_scoreboard_image->parent[slot].pid != child_pid && slot < HARD_SERVER_LIMIT; slot++);
+            for (slot=0; ap_scoreboard_image->parent[slot].pid != child_pid && slot < HARD_SERVER_LIMIT; slot++)
+                ;                       // Keep looking
 
             if (slot < HARD_SERVER_LIMIT) {
                 ap_scoreboard_image->parent[slot].pid = 0;
@@ -311,11 +368,13 @@ static int master_main()
             /* No child exited, lets sleep for a while.... */
             apr_sleep(SCOREBOARD_MAINTENANCE_INTERVAL);
         }
-    }
+    } // while
 
     /* Signal children to shut down, either gracefully or immediately */
     for (slot=0; slot<HARD_SERVER_LIMIT; slot++) {
-      kill(ap_scoreboard_image->parent[slot].pid, is_graceful ? SIGHUP : SIGTERM);
+        if (ap_scoreboard_image->parent[slot].pid!=0){
+          kill(ap_scoreboard_image->parent[slot].pid, is_graceful ? SIGHUP : SIGTERM);
+        }
     }
 
     DosFreeMem(parent_info);
@@ -583,10 +642,24 @@ static const char *ignore_cmd(cmd_parms *cmd, void *dummy, const char *arg)
     return NULL;
 }
 
+static const char *set_thread_stacksize(cmd_parms *cmd, void *dummy,
+                                        const char *arg)
+{
+    const char *err = ap_check_cmd_context(cmd, GLOBAL_ONLY);
+    if (err != NULL) {
+        return err;
+    }
+
+    ap_thread_stack_size = atoi(arg);
+    return NULL;
+}
+
 
 
 static const command_rec mpmt_os2_cmds[] = {
 LISTEN_COMMANDS,
+AP_INIT_TAKE1("ThreadStackSize", set_thread_stacksize, NULL, RSRC_CONF,
+              "Stack size each created thread will use."),
 AP_INIT_TAKE1( "StartServers", set_daemons_to_start, NULL, RSRC_CONF,
   "Number of child processes launched at server startup" ),
 AP_INIT_TAKE1("MinSpareThreads", set_min_spare_threads, NULL, RSRC_CONF,
@@ -604,7 +677,7 @@ AP_INIT_TAKE1("ScoreBoardFile", ignore_cmd, NULL, RSRC_CONF, \
 
 AP_DECLARE_MODULE(mpm_mpmt_os2) = {
     MPM20_MODULE_STUFF,
-    NULL,            /* hook to run before apache parses args */
+    ap_mpm_rewrite_args,            /* hook to run before apache parses args */
     NULL,            /* create per-directory config structure */
     NULL,            /* merge per-directory config structures */
     NULL,            /* create per-server config structure */

@@ -105,13 +105,7 @@ extern "C" {
  * directive.
  */
 #ifndef DOCUMENT_LOCATION
-#ifdef OS2
-/* Set default for OS/2 file system */
-#define DOCUMENT_LOCATION  HTTPD_ROOT "/docs"
-#else
-/* Set default for non OS/2 file system */
 #define DOCUMENT_LOCATION  HTTPD_ROOT "/htdocs"
-#endif
 #endif /* DOCUMENT_LOCATION */
 
 /** Maximum number of dynamically loaded modules */
@@ -124,7 +118,7 @@ extern "C" {
 
 /** The name of the log files */
 #ifndef DEFAULT_ERRORLOG
-#if defined(OS2) || defined(WIN32)
+#if defined(WIN32)
 #define DEFAULT_ERRORLOG "logs/error.log"
 #else
 #define DEFAULT_ERRORLOG "logs/error_log"
@@ -133,12 +127,7 @@ extern "C" {
 
 /** Define this to be what your per-directory security files are called */
 #ifndef DEFAULT_ACCESS_FNAME
-#ifdef OS2
-/* Set default for OS/2 file system */
-#define DEFAULT_ACCESS_FNAME "htaccess"
-#else
 #define DEFAULT_ACCESS_FNAME ".htaccess"
-#endif
 #endif /* DEFAULT_ACCESS_FNAME */
 
 /** The name of the server config file */

@@ -58,7 +58,7 @@
 
 #include "mod_so.h" /* for ap_find_loaded_module_symbol */
 
-#if defined(RLIMIT_CPU) || defined (RLIMIT_DATA) || defined (RLIMIT_VMEM) || defined(RLIMIT_AS) || defined (RLIMIT_NPROC)
+#if (defined(RLIMIT_CPU) || defined (RLIMIT_DATA) || defined (RLIMIT_VMEM) || defined(RLIMIT_AS) || defined (RLIMIT_NPROC)) && !defined(__OS2__)
 #include "unixd.h"
 #endif
 #if APR_HAVE_UNISTD_H
@@ -3862,7 +3862,7 @@ AP_DECLARE(apr_size_t) ap_get_limit_xml_body(const request_rec *r)
     return (apr_size_t)conf->limit_xml_body;
 }
 
-#if !defined (RLIMIT_CPU) || !(defined (RLIMIT_DATA) || defined (RLIMIT_VMEM) || defined(RLIMIT_AS)) || !defined (RLIMIT_NPROC)
+#if !defined (RLIMIT_CPU) || !(defined (RLIMIT_DATA) || defined (RLIMIT_VMEM) || defined(RLIMIT_AS)) || !defined (RLIMIT_NPROC) || defined (OS2)
 static const char *no_set_limit(cmd_parms *cmd, void *conf_,
                                 const char *arg, const char *arg2)
 {
@@ -3873,7 +3873,7 @@ static const char *no_set_limit(cmd_parms *cmd, void *conf_,
 }
 #endif
 
-#ifdef RLIMIT_CPU
+#if defined(RLIMIT_CPU) && !defined(OS2)
 static const char *set_limit_cpu(cmd_parms *cmd, void *conf_,
                                  const char *arg, const char *arg2)
 {
@@ -3884,7 +3884,7 @@ static const char *set_limit_cpu(cmd_parms *cmd, void *conf_,
 }
 #endif
 
-#if defined (RLIMIT_DATA) || defined (RLIMIT_VMEM) || defined(RLIMIT_AS)
+#if (defined (RLIMIT_DATA) || defined (RLIMIT_VMEM) || defined(RLIMIT_AS)) && !defined(OS2)
 static const char *set_limit_mem(cmd_parms *cmd, void *conf_,
                                  const char *arg, const char * arg2)
 {
@@ -3902,7 +3902,7 @@ static const char *set_limit_mem(cmd_parms *cmd, void *conf_,
 }
 #endif
 
-#ifdef RLIMIT_NPROC
+#if defined(RLIMIT_NPROC) && !defined(OS2)
 static const char *set_limit_nproc(cmd_parms *cmd, void *conf_,
                                    const char *arg, const char * arg2)
 {
@@ -4600,7 +4600,7 @@ AP_INIT_TAKE1("MaxRangeReversals", set_max_reversals, NULL, RSRC_CONF|ACCESS_CON
               "Maximum number of reversals in Ranges in a request before returning the entire "
               "resource, or 0 for unlimited"),
 /* System Resource Controls */
-#ifdef RLIMIT_CPU
+#if defined(RLIMIT_CPU) && !defined(OS2)
 AP_INIT_TAKE12("RLimitCPU", set_limit_cpu,
   (void*)APR_OFFSETOF(core_dir_config, limit_cpu),
   OR_ALL, "Soft/hard limits for max CPU usage in seconds"),
@@ -4608,7 +4608,7 @@ AP_INIT_TAKE12("RLimitCPU", set_limit_cpu,
 AP_INIT_TAKE12("RLimitCPU", no_set_limit, NULL,
   OR_ALL, "Soft/hard limits for max CPU usage in seconds"),
 #endif
-#if defined (RLIMIT_DATA) || defined (RLIMIT_VMEM) || defined (RLIMIT_AS)
+#if (defined (RLIMIT_DATA) || defined (RLIMIT_VMEM) || defined (RLIMIT_AS)) && !defined(OS2)
 AP_INIT_TAKE12("RLimitMEM", set_limit_mem,
   (void*)APR_OFFSETOF(core_dir_config, limit_mem),
   OR_ALL, "Soft/hard limits for max memory usage per process"),
@@ -4616,7 +4616,7 @@ AP_INIT_TAKE12("RLimitMEM", set_limit_mem,
 AP_INIT_TAKE12("RLimitMEM", no_set_limit, NULL,
   OR_ALL, "Soft/hard limits for max memory usage per process"),
 #endif
-#ifdef RLIMIT_NPROC
+#if defined(RLIMIT_NPROC) && !defined(OS2)
 AP_INIT_TAKE12("RLimitNPROC", set_limit_nproc,
   (void*)APR_OFFSETOF(core_dir_config, limit_nproc),
   OR_ALL, "soft/hard limits for max number of processes per uid"),

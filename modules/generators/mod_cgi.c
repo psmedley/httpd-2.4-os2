@@ -53,9 +53,11 @@
 #include "mod_core.h"
 #include "mod_cgi.h"
 
+#ifndef __OS2__
 #if APR_HAVE_STRUCT_RLIMIT
 #if defined (RLIMIT_CPU) || defined (RLIMIT_NPROC) || defined (RLIMIT_DATA) || defined(RLIMIT_VMEM) || defined(RLIMIT_AS)
 #define AP_CGI_USE_RLIMIT
+#endif
 #endif
 #endif
 
@@ -209,6 +211,13 @@ static apr_status_t log_script_err(request_rec *r, apr_file_t *script_err)
 
     while ((rv = apr_file_gets(argsbuffer, HUGE_STRING_LEN,
                                script_err)) == APR_SUCCESS) {
+        // 2022-03-28 SHL
+#       ifdef OS2
+        newline = strchr(argsbuffer, '\r');
+        if (newline) {
+            *newline = '\0';
+        }
+#       endif
         newline = strchr(argsbuffer, '\n');
         if (newline) {
             *newline = '\0';
@@ -402,6 +411,7 @@ static apr_status_t run_cgi_child(apr_file_t **script_out,
 #endif
     int i;
 #endif
+
 
     RAISE_SIGSTOP(CGI_CHILD);
 #ifdef DEBUG_CGI

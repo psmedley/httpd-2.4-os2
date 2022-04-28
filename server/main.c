@@ -46,6 +46,15 @@
 #include <unistd.h>
 #endif
 
+#ifdef __OS2__x
+#define INCL_LOADEXCEPTQ
+// 2013-03-24 SHL
+#define INCL_DOSEXCEPTIONS
+#define INCL_DOSPROCESS
+#include <os2.h>
+#include "exceptq.h"
+#endif
+
 /* WARNING: Win32 binds http_main.c dynamically to the server. Please place
  *          extern functions and global data in another appropriate module.
  *
@@ -485,8 +494,48 @@ static void usage(process_rec *process)
     destroy_and_exit_process(process, 1);
 }
 
+// 2013-03-24 SHL FIXME to be gone
+#ifdef __OS2__
+
+// #define CHECK_EXCEPTION_CHAIN
+
+#ifdef CHECK_EXCEPTION_CHAIN
+
+/**
+ * Check exception handler chain validity
+ * @param pRegRec points to EXCEPTIONREGISTRATIONRECORD or NULL
+ * @return 1 if OK else 0
+ * @note Sprinkle calls to this function in worker_main()
+ */
+
+static int IsExceptionHandlerChainOK(void)
+{
+  PTIB ptib;
+  PPIB ppib;
+  EXCEPTIONREGISTRATIONRECORD *pRegRec;
+  DosGetInfoBlocks(&ptib, &ppib);
+
+  pRegRec = ptib->tib_pexchain;         // Check full chain
+
+  for (;;) {
+    pRegRec = pRegRec->prev_structure;
+    if (pRegRec == END_OF_CHAIN)
+      return 1;                 // OK = end of chain
+    if ((PVOID)pRegRec < ptib->tib_pstack)
+      return 0;                 // Oops
+    if ((PVOID)pRegRec >= ptib->tib_pstacklimit)
+      return 0;                 // Oops
+  } // for
+}
+#endif
+
+#endif // __OS2__
+
 int main(int argc, const char * const argv[])
 {
+#ifdef __OS2__
+    EXCEPTIONREGISTRATIONRECORD exRegRec;
+#endif
     char c;
     int showcompile = 0, showdirectives = 0;
     const char *confname = SERVER_CONFIG_FILE;
@@ -506,6 +555,9 @@ int main(int argc, const char * const argv[])
     int rc = OK;
 
     AP_MONCONTROL(0); /* turn off profiling of startup */
+#ifdef __OS2__x
+    LoadExceptq(&exRegRec, "I", "Apache2");
+#endif
 
     process = init_process(&argc, &argv);
     ap_pglobal = process->pool;
@@ -852,6 +904,17 @@ int main(int argc, const char * const argv[])
                      "MPM run failed, exiting");
     }
     destroy_and_exit_process(process, rc);
+
+#ifdef __OS2__
+#ifdef CHECK_EXCEPTION_CHAIN // 2013-03-27 SHL
+    // 2013-03-24 SHL
+    if (!IsExceptionHandlerChainOK())
+        ap_log_error(APLOG_MARK, APLOG_ERR, 0, NULL,
+                     "exception chain corrupted in main at #0");
+#endif
+
+//    UninstallExceptq(&exRegRec);
+#endif
 
     /* NOTREACHED */
     return !OK;

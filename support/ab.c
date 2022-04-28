@@ -804,6 +804,8 @@ static void ssl_proceed_handshake(struct connection *c)
 
 static void write_request(struct connection * c)
 {
+    int connect_retries = 0;
+
     if (started >= requests) {
         return;
     }
@@ -858,6 +860,19 @@ static void write_request(struct connection * c)
 #endif
         {
             e = apr_socket_send(c->aprsock, request + c->rwrote, &l);
+
+        /* 2015-11-01 SHL Avoid apparent tcp/ip stack defect
+           Connecting to a remote host is slow in the sense that the 1st write
+           after connect can fail with SOCENOTCONN, which is spurious
+           The retries avoid the spurious errors
+        */
+        if (e == APR_FROM_OS_ERROR(SOCENOTCONN) &&
+            c->rwrote == 0 &&
+            ++connect_retries <= 5) {
+          apr_sleep(apr_time_from_msec(10));
+          continue;
+        }
+
             if (e != APR_SUCCESS && !l) {
                 if (!APR_STATUS_IS_EAGAIN(e)) {
                     epipe++;
@@ -2304,6 +2319,11 @@ int main(int argc, const char * const argv[])
 #ifdef USE_SSL
     AB_SSL_METHOD_CONST SSL_METHOD *meth = SSLv23_client_method();
 #endif
+
+#   ifdef OS2                           /* 2014-12-29 SHL want text output for OS2 */
+    _fsetmode(stdout, "t");
+    _fsetmode(stderr, "t");
+#   endif
 
     /* table defaults  */
     tablestring = "";

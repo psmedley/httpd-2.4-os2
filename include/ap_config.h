@@ -102,7 +102,7 @@
 #define AP_DECLARE_DATA             __declspec(dllimport)
 #endif
 
-#if !defined(WIN32) || defined(AP_MODULE_DECLARE_STATIC)
+#if (!defined(WIN32) && !defined(__OS2__)) || defined(AP_MODULE_DECLARE_STATIC)
 /**
  * Declare a dso module's exported module structure as AP_MODULE_DECLARE_DATA.
  *
@@ -118,7 +118,7 @@
 #define AP_MODULE_DECLARE(type)            type
 #endif
 #define AP_MODULE_DECLARE_NONSTD(type)     type
-#define AP_MODULE_DECLARE_DATA
+#define AP_MODULE_DECLARE_DATA		
 #else
 /**
  * AP_MODULE_DECLARE_EXPORT is a no-op.  Unless contradicted by the

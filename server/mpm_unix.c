@@ -799,6 +799,7 @@ int ap_signal_server(int *exit_status, apr_pool_t *pconf)
         status = "httpd (no pid file) not running";
     }
     else {
+#ifndef __OS2__
         /* With containerization, httpd may get the same PID at each startup,
          * handle it as if it were not running (it obviously can't).
          */
@@ -813,6 +814,7 @@ int ap_signal_server(int *exit_status, apr_pool_t *pconf)
                                   "httpd (pid %" APR_PID_T_FMT "?) not running",
                                   otherpid);
         }
+#endif
     }
 
     if (!strcmp(dash_k_arg, "start") || dash_k_arg == dash_k_arg_noarg) {

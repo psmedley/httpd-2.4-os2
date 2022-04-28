@@ -3356,6 +3356,7 @@ AP_DECLARE(void) ap_get_loadavg(ap_loadavg_t *ld)
     ld->loadavg5 = -1.0;
     ld->loadavg15 = -1.0;
 
+#ifndef __OS2__
 #if HAVE_GETLOADAVG
     {
         double la[3];
@@ -3372,6 +3373,7 @@ AP_DECLARE(void) ap_get_loadavg(ap_loadavg_t *ld)
             ld->loadavg15 = (float)la[2];
         }
     }
+#endif
 #endif
 }
 

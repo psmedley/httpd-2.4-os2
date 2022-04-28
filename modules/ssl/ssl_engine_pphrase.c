@@ -243,7 +243,7 @@ apr_status_t ssl_load_encrypted_pkey(server_rec *s, apr_pool_t *p, int idx,
          * user (but not the dialog program) a few more
          * chances...
          */
-#ifndef WIN32
+#if !defined(WIN32) && !defined(__OS2__) /* 2011-01-31 */
         if ((sc->server->pphrase_dialog_type == SSL_PPTYPE_BUILTIN
              || sc->server->pphrase_dialog_type == SSL_PPTYPE_PIPE)
 #else
@@ -261,7 +261,7 @@ apr_status_t ssl_load_encrypted_pkey(server_rec *s, apr_pool_t *p, int idx,
                             * 5 * APR_USEC_PER_SEC);
             continue;
         }
-#ifdef WIN32
+#if defined(WIN32) || defined(__OS2__) /* 2011-01-31 */
         if (sc->server->pphrase_dialog_type == SSL_PPTYPE_BUILTIN) {
             ap_log_error(APLOG_MARK, APLOG_EMERG, 0, s, APLOGNO(02577)
                          "Init: SSLPassPhraseDialog builtin is not "
@@ -436,7 +436,8 @@ static int pipe_get_passwd_cb(char *buf, int length, char *prompt, int verify)
     if ((p = strchr(buf, '\n')) != NULL) {
         *p = '\0';
     }
-#ifdef WIN32
+#if defined(WIN32) || defined(__OS2__) /* 2011-01-31 */
+
     /* XXX: apr_sometest */
     if ((p = strchr(buf, '\r')) != NULL) {
         *p = '\0';
@@ -496,7 +497,7 @@ int ssl_pphrase_Handle_CB(char *buf, int bufsize, int verify, void *srv)
                          "Init: Requesting pass phrase via piped dialog");
         }
         else { /* sc->server->pphrase_dialog_type == SSL_PPTYPE_BUILTIN */
-#ifdef WIN32
+#if defined(WIN32) || defined(__OS2__) /* 2011-01-31 */
             PEMerr(PEM_F_PEM_DEF_CALLBACK, PEM_R_PROBLEMS_GETTING_PASSWORD);
             memset(buf, 0, (unsigned int)bufsize);
             return (-1);

@@ -39,6 +39,9 @@
 
 #ifdef OS2
 #define INCL_DOS
+#ifdef __KLIBC__
+#include <os2safe.h>
+#endif
 #include <os2.h>
 #endif
 

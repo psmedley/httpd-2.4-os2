@@ -64,6 +64,16 @@
 #define unlink _unlink
 #endif
 
+#ifdef __OS2__
+#define INCL_LOADEXCEPTQ
+// 2013-03-24 SHL
+#define INCL_DOSEXCEPTIONS
+#define INCL_DOSPROCESS
+#include <os2safe.h>
+#include <os2.h>
+#include "exceptq.h"
+#endif
+
 #define APHTP_NEWFILE        1
 #define APHTP_NOFILE         2
 #define APHTP_DELUSER        4
@@ -278,6 +288,9 @@ static int verify(struct passwd_ctx *ctx, const char *hash)
  */
 int main(int argc, const char * const argv[])
 {
+#ifdef __OS2__
+    EXCEPTIONREGISTRATIONRECORD exRegRec;
+#endif
     apr_file_t *fpw = NULL;
     char line[MAX_STRING_LEN];
     char *pwfilename = NULL;
@@ -296,7 +309,12 @@ int main(int argc, const char * const argv[])
     apr_xlate_t *to_ascii;
 #endif
 
+#ifdef __OS2__
+    LoadExceptq(&exRegRec, "I", "htpasswd");
+#endif
+
     apr_app_initialize(&argc, &argv, NULL);
+
     atexit(terminate);
     apr_pool_create(&pool, NULL);
     apr_pool_abort_set(abort_on_oom, pool);
@@ -520,5 +538,8 @@ int main(int argc, const char * const argv[])
         exit(ERR_FILEPERM);
     }
     apr_file_close(ftemp);
+#ifdef __OS2__
+    UninstallExceptq(&exRegRec);
+#endif
     return 0;
 }
