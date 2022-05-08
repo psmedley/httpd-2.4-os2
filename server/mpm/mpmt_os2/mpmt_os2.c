@@ -77,7 +77,7 @@ static apr_pool_t *pconf = NULL;  /* Pool for config stuff */
 /* Config globals */
 static int one_process = 0;
 static int ap_daemons_to_start = 0;
-static int ap_thread_limit = 0;
+int ap_thread_limit = 0;                        // 2022-05-07 SHL make global for mpmt_os2_child
 int ap_min_spare_threads = 0;
 int ap_max_spare_threads = 0;
 int ap_thread_stack_size = 128 * 1024;
@@ -120,7 +120,7 @@ static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
 {
     char *listener_shm_name;
     parent_info_t *parent_info;
-    ULONG rc,rv;
+    ULONG rc;
     pconf = _pconf;
     ap_server_conf = s;
     restart_pending = 0;
@@ -130,8 +130,6 @@ static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
     TID   tidSemaphoreOwner = 0;         /* will get TID of sem owner */
     ULONG ulRequestCount;      /* will get the request count for the sem */
 
-    // DosSetMaxFH(ap_thread_limit * 2);
-
     rc = DosSetRelMaxFH(&ReqCount,     /* Using 0 here will return the       */
                         &CurMaxFH);    /* current number of file handles     */
 
@@ -140,7 +138,7 @@ static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
     rc = DosSetRelMaxFH(&ReqCount,&CurMaxFH);     /* Change handle maximum */
 
     listener_shm_name = apr_psprintf(pconf, "/sharemem/httpd/parent_info.%d", getppid());
-    rc = DosGetNamedSharedMem((PPVOID)&parent_info, listener_shm_name, PAG_READ);
+    rc = DosGetNamedSharedMem((PPVOID)&parent_info, (PCSZ)listener_shm_name, PAG_READ);
     is_parent_process = rc != 0;
     ap_scoreboard_fname = apr_psprintf(pconf, "/sharemem/httpd/scoreboard.%d", is_parent_process ? getpid() : getppid());
 
@@ -218,17 +216,17 @@ static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
             // 2013-03-24 SHL was APLOG_INFO
             if (rc2 == 0)
                 ap_log_error(APLOG_MARK, APLOG_INFO, APR_SUCCESS,
-                             ap_server_conf, "pidSemaphoreOwner = %d, tidSemaphoreOwner = %d, ulRequestCount = %ul",
+                             ap_server_conf, "pidSemaphoreOwner = %lu, tidSemaphoreOwner = %lu, ulRequestCount = %lu",
                              pidSemaphoreOwner, tidSemaphoreOwner, ulRequestCount);
 
             // 2013-03-24 SHL
             else if (rc2 == ERROR_SEM_OWNER_DIED)
                 ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc2),
-                             ap_server_conf, "Sem owner died pidSemaphoreOwner = %d, tidSemaphoreOwner = %d, ulRequestCount = %ul",
+                             ap_server_conf, "Sem owner died pidSemaphoreOwner = %lu, tidSemaphoreOwner = %lu, ulRequestCount = %lu",
                              pidSemaphoreOwner, tidSemaphoreOwner, ulRequestCount);
             else
                 ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc2), s,
-                             "DosQueryMutexSem returned %d", rc2);
+                             "DosQueryMutexSem returned %lu", rc2);
 #endif
             ap_log_error(APLOG_MARK, APLOG_NOTICE, 0, ap_server_conf, APLOGNO(00201)
                          "caught %s, shutting down",
@@ -269,7 +267,7 @@ static int master_main()
     }
 
     listener_shm_name = apr_psprintf(pconf, "/sharemem/httpd/parent_info.%d", getpid());
-    rc = DosAllocSharedMem((PPVOID)&parent_info, listener_shm_name,
+    rc = DosAllocSharedMem((PPVOID)&parent_info, (PCSZ)listener_shm_name,
                            sizeof(parent_info_t) + num_listeners * sizeof(listen_socket_t),
                            PAG_READ|PAG_WRITE|PAG_COMMIT);
 
@@ -301,7 +299,7 @@ static int master_main()
     /* Allocate shared memory for scoreboard */
     if (ap_scoreboard_image == NULL) {
         void *sb_mem;
-        rc = DosAllocSharedMem(&sb_mem, ap_scoreboard_fname,
+        rc = DosAllocSharedMem(&sb_mem, (PCSZ)ap_scoreboard_fname,
                                ap_calc_scoreboard_size(),
                                PAG_COMMIT|PAG_READ|PAG_WRITE);
 
@@ -396,7 +394,7 @@ static void spawn_child(int slot)
     DosGetInfoBlocks(&ptib, &ppib);
     DosQueryModuleName(ppib->pib_hmte, sizeof(progname), progname);
     rc = DosExecPgm(fail_module, sizeof(fail_module), EXEC_ASYNCRESULT,
-                    ppib->pib_pchcmd, NULL, &proc_rc, progname);
+                    (PCSZ)ppib->pib_pchcmd, NULL, &proc_rc, (PCSZ)progname);
 
     if (rc) {
         ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc), ap_server_conf, APLOGNO(00208)
@@ -636,6 +634,20 @@ static const char *set_max_spare_threads(cmd_parms *cmd, void *dummy,
 }
 
 
+// 2022-05-07 SHL
+static const char *set_thread_limit(cmd_parms *cmd, void *dummy,
+                                   const char *arg)
+{
+    const char *err = ap_check_cmd_context(cmd, GLOBAL_ONLY);
+
+    if (err != NULL) {
+        return err;
+    }
+
+    ap_thread_limit = atoi(arg);
+    return NULL;
+}
+
 
 static const char *ignore_cmd(cmd_parms *cmd, void *dummy, const char *arg)
 {
@@ -666,6 +678,9 @@ AP_INIT_TAKE1("MinSpareThreads", set_min_spare_threads, NULL, RSRC_CONF,
   "Minimum number of idle children, to handle request spikes"),
 AP_INIT_TAKE1("MaxSpareThreads", set_max_spare_threads, NULL, RSRC_CONF,
   "Maximum number of idle children"),
+// 2022-05-07 SHL
+AP_INIT_TAKE1("MaxThreads", set_thread_limit, NULL, RSRC_CONF,
+  "Maximum number children"),
 AP_INIT_TAKE1("User", ignore_cmd, NULL, RSRC_CONF,
   "Not applicable on this platform"),
 AP_INIT_TAKE1("Group", ignore_cmd, NULL, RSRC_CONF,

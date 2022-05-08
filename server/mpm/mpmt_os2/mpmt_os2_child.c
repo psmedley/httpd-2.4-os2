@@ -74,6 +74,7 @@ HEV shutdown_event; /* signaled when this child is shutting down */
 /* grab some MPM globals */
 extern int ap_min_spare_threads;
 extern int ap_max_spare_threads;
+extern int ap_thread_limit;             // 2022-05-07 SHL
 extern HMTX ap_mpm_accept_mutex;
 
 // 2013-03-29 SHL was static - better for debug this way
@@ -532,7 +533,7 @@ void worker_main(void *vpArg)
 #ifndef USE_EXCEPTQ
     EXCEPTIONREGISTRATIONRECORD reg_rec = { NULL, thread_exception_handler };
 #else
-    EXCEPTIONREGISTRATIONRECORD exRegRec;
+    // EXCEPTIONREGISTRATIONRECORD exRegRec;    // 2022-05-07 SHL FIXME to be gone with friends
 #endif
     ap_sb_handle_t *sbh;
 
@@ -635,6 +636,7 @@ void worker_main(void *vpArg)
 void server_maintenance(void *vpArg)
 {
     int num_idle, num_needed;
+    int num_alive;                      // 2022-05-07 SHL
     ULONG num_pending = 0;
     int threadnum;
     HQUEUE workq;
@@ -651,8 +653,10 @@ void server_maintenance(void *vpArg)
     }
 
     do {
-        for (num_idle=0, threadnum=0; threadnum < HARD_THREAD_LIMIT; threadnum++) {
+        // 2022-05-07 SHL Honor ap_thread_limit
+        for (num_idle=0, num_alive = 0, threadnum=0; threadnum < HARD_THREAD_LIMIT; threadnum++) {
             num_idle += ap_scoreboard_image->servers[child_slot][threadnum].status == SERVER_READY;
+            num_alive += ap_scoreboard_image->servers[child_slot][threadnum].status != SERVER_DEAD;
         }
 
         /* 2015-02-03 SHL Handle errors */
@@ -664,7 +668,15 @@ void server_maintenance(void *vpArg)
             DosSleep(1000);             /* Avoid hogging */
             continue;
         }
-        num_needed = ap_min_spare_threads - num_idle + num_pending;
+
+        // 2022-05-07 SHL Honor ap_thread_limit
+        if (num_alive >= ap_thread_limit)
+            num_needed = 0;
+        else {
+            num_needed = ap_min_spare_threads - num_idle + num_pending;
+            if (num_alive + num_needed > ap_thread_limit)
+                num_needed = ap_thread_limit - num_alive;
+        }
 
         if (num_needed > 0) {
             for (threadnum=0; threadnum < num_needed; threadnum++) {
