@@ -143,6 +143,69 @@ static apr_status_t unload_module(void *data)
     return APR_SUCCESS;
 }
 
+#ifdef __OS2__                          // 2022-05-09 SHL
+/**
+ * Add directory part to BEGINLIBPATH and retry
+ * @returns -1 if error, 0 if already in, 1 if added
+ */
+static int update_beginlibpath(cmd_parms *cmd, const char *fullname)
+{
+    char beginlibpath[1024];            /* kernel limit */
+    char dir[CCHMAXPATH];
+    char *p;
+    APIRET apiret;
+    char *suffix = ";%%BEGINLIBPATH%%";
+
+    strncpy(dir, fullname, CCHMAXPATH);
+    dir[CCHMAXPATH - 1] = 0;
+    /* Use DOS slashes to match kernel
+       apr_filepath_merge has mapped DOS slashes to unix slashes
+    */
+    for (p = strchr(dir, '/'); p; p = strchr(p, '/'))
+        *p = '\\';
+
+    p = strrchr(dir, '\\');
+    if (!p)
+        return 0;                       /* No path, nothing to set */
+
+    *p = 0;                             /* Chop filename leaving directory part */
+
+    apiret = DosQueryExtLIBPATH((PCSZ)beginlibpath, BEGIN_LIBPATH);
+    if (apiret != 0) {
+        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01578)
+                     "update_beginlibpath DosQueryExtLIBPATH failed with error %u", apiret);
+        return -1;
+    }
+
+    p = strcasestr(beginlibpath, dir);
+    if (p && (p == dir || *(p - 1) == ';')) {
+        char* pend = p + strlen(dir);
+        if (*pend == 0 || *pend == ';')
+          return 0;                     /* Already in BEGINLIBPATH */
+    }
+
+    if (strlen(dir) + strlen(suffix) + 1 >= sizeof(beginlibpath))
+        return 0;                       /* Fail silently if too long */
+
+    strcpy(beginlibpath, dir);
+    strcat(beginlibpath, suffix);
+    apiret = DosSetExtLIBPATH((PCSZ)beginlibpath, BEGIN_LIBPATH);
+
+    if (apiret != 0) {
+        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01579)
+                     "update_beginlibpath DosSetExtLIBPATH failed with error %u", apiret);
+        return -1;
+    }
+
+    ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, cmd->pool, APLOGNO(01580)
+                 "update_beginlibpath set BEGINLIBPATH to %s", beginlibpath);
+
+    return 1;                           /* Report BEGINLIBPATH updated */
+}
+
+
+#endif // __OS2__
+
 static const char *dso_load(cmd_parms *cmd, apr_dso_handle_t **modhandlep,
                             const char *filename, const char **used_filename)
 {
@@ -150,7 +213,7 @@ static const char *dso_load(cmd_parms *cmd, apr_dso_handle_t **modhandlep,
     const char *fullname = ap_server_root_relative(cmd->temp_pool, filename);
     char my_error[256];
     if (filename != NULL && ap_strchr_c(filename, '/') == NULL) {
-        /* retry on error without path to use dlopen()'s search path */
+        /* if no path, retry on error without path to use dlopen()'s search path */
         retry = 1;
     }
 
@@ -167,6 +230,24 @@ static const char *dso_load(cmd_parms *cmd, apr_dso_handle_t **modhandlep,
         if (apr_dso_load(modhandlep, filename, cmd->pool) == APR_SUCCESS)
             return NULL;
     }
+
+#if __OS2__                             // 2022-05-09 SHL
+    if (!retry && fullname) {
+        int rv;
+        /* Assume load failed because some required module was not
+           found in LIBPATH because module directory is not in LIBPATH
+           Add module directory to BEGINLIBPATH and retry
+        */
+        rv = update_beginlibpath(cmd, fullname);
+        /* update_beginlibpath has already complained, if needed */
+        if (rv == 1) {
+            /* BEGINLIBPATH updated - retry load */
+            *used_filename = fullname;
+            if (apr_dso_load(modhandlep, fullname, cmd->pool) == APR_SUCCESS)
+                return NULL;
+        }
+    }
+#   endif
 
     return apr_pstrcat(cmd->temp_pool, "Cannot load ", filename,
                         " into server: ",
