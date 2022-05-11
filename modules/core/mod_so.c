@@ -178,7 +178,7 @@ static int update_beginlibpath(cmd_parms *cmd, const char *fullname)
     }
 
     p = strcasestr(beginlibpath, dir);
-    if (p && (p == dir || *(p - 1) == ';')) {
+    if (p && (p == beginlibpath || *(p - 1) == ';')) {
         char* pend = p + strlen(dir);
         if (*pend == 0 || *pend == ';')
           return 0;                     /* Already in BEGINLIBPATH */
