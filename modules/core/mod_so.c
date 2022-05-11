@@ -154,7 +154,7 @@ static int update_beginlibpath(cmd_parms *cmd, const char *fullname)
     char dir[CCHMAXPATH];
     char *p;
     APIRET apiret;
-    char *suffix = ";%%BEGINLIBPATH%%";
+    char *suffix = ";%BEGINLIBPATH%";
 
     strncpy(dir, fullname, CCHMAXPATH);
     dir[CCHMAXPATH - 1] = 0;
@@ -231,7 +231,7 @@ static const char *dso_load(cmd_parms *cmd, apr_dso_handle_t **modhandlep,
             return NULL;
     }
 
-#if __OS2__                             // 2022-05-09 SHL
+#ifdef __OS2__                          // 2022-05-09 SHL
     if (!retry && fullname) {
         int rv;
         /* Assume load failed because some required module was not
