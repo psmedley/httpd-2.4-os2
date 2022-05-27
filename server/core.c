@@ -2239,6 +2239,8 @@ static const char *set_etag_bits(cmd_parms *cmd, void *mconfig,
     return NULL;
 }
 
+#if APR_HAS_MMAP /* 2022-05-25 SHL */
+
 static const char *set_enable_mmap(cmd_parms *cmd, void *d_,
                                    const char *arg)
 {
@@ -2256,6 +2258,8 @@ static const char *set_enable_mmap(cmd_parms *cmd, void *d_,
 
     return NULL;
 }
+
+#endif /* APR_HAS_MMAP 2022-05-25 SHL */
 
 static const char *set_enable_sendfile(cmd_parms *cmd, void *d_,
                                    const char *arg)
@@ -4503,8 +4507,10 @@ AP_INIT_TAKE1("DefaultType", set_default_type, NULL, OR_FILEINFO,
   "the default media type for otherwise untyped files (DEPRECATED)"),
 AP_INIT_RAW_ARGS("FileETag", set_etag_bits, NULL, OR_FILEINFO,
   "Specify components used to construct a file's ETag"),
+#if APR_HAS_MMAP /* 2022-05-25 SHL  */
 AP_INIT_TAKE1("EnableMMAP", set_enable_mmap, NULL, OR_FILEINFO,
   "Controls whether memory-mapping may be used to read files"),
+#endif
 AP_INIT_TAKE1("EnableSendfile", set_enable_sendfile, NULL, OR_FILEINFO,
   "Controls whether sendfile may be used to transmit files"),
 AP_INIT_TAKE1("ReadBufferSize", set_read_buf_size, NULL, ACCESS_CONF|RSRC_CONF,
