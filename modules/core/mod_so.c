@@ -144,67 +144,113 @@ static apr_status_t unload_module(void *data)
 }
 
 #ifdef __OS2__                          // 2022-05-09 SHL
+
 /**
- * Add directory part to BEGINLIBPATH and retry
+ * Add directory part of pathname or path list to BEGINLIBPATH
+ * @param fullname is file pathname or directory path list
+ * @param isPathList is true if directory path list passed, is false if file name passed
  * @returns -1 if error, 0 if already in, 1 if added
+ * @note kernel limits BEGINLIBPATH string buffer to 1024 byte
  */
-static int update_beginlibpath(cmd_parms *cmd, const char *fullname)
+
+static int update_beginlibpath(cmd_parms *cmd, const char *fullname, int isPathList)
 {
-    char beginlibpath[1024];            /* kernel limit */
-    char dir[CCHMAXPATH];
+    #define BLP_BUF_BYTES	((unsigned int)1024)		/* Kernel limit */
+    char beginlibpath[BLP_BUF_BYTES];     /* kernel limit */
+    char dir[BLP_BUF_BYTES];	/* pathname or path list */
     char *p;
+    unsigned int old_blp_len;
+    unsigned int new_blp_len;
     APIRET apiret;
     char *suffix = ";%BEGINLIBPATH%";
 
-    strncpy(dir, fullname, CCHMAXPATH);
-    dir[CCHMAXPATH - 1] = 0;
+    new_blp_len = strlen(fullname);
+    if (new_blp_len >= BLP_BUF_BYTES) {
+	ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01578)
+		     "update_beginlibpath argument is %u bytes which exceeds %u limit\n", new_blp_len, BLP_BUF_BYTES - 1);
+	return -1;
+    }
+    strcpy(dir, fullname);
     /* Use DOS slashes to match kernel
        apr_filepath_merge has mapped DOS slashes to unix slashes
     */
     for (p = strchr(dir, '/'); p; p = strchr(p, '/'))
-        *p = '\\';
+	*p = '\\';
 
-    p = strrchr(dir, '\\');
-    if (!p)
-        return 0;                       /* No path, nothing to set */
+    /* If filename passed isolate directory part, otherwise use pathlist as is */
+    if (!isPathList) {
+      p = strrchr(dir, '\\');
+      if (!p)
+	  return 0;                       /* No path, nothing to set */
 
-    *p = 0;                             /* Chop filename leaving directory part */
+      *p = 0;                             /* Chop filename leaving directory part */
+      new_blp_len = strlen(dir);
+    }
 
+    /* Check duplicated */
     apiret = DosQueryExtLIBPATH((PCSZ)beginlibpath, BEGIN_LIBPATH);
     if (apiret != 0) {
-        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01578)
-                     "update_beginlibpath DosQueryExtLIBPATH failed with error %u", apiret);
-        return -1;
+	ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01578)
+		     "update_beginlibpath DosQueryExtLIBPATH failed with error %lu", apiret);
+	return -1;
     }
 
     p = strcasestr(beginlibpath, dir);
     if (p && (p == beginlibpath || *(p - 1) == ';')) {
-        char* pend = p + strlen(dir);
-        if (*pend == 0 || *pend == ';')
-          return 0;                     /* Already in BEGINLIBPATH */
+	char* pend = p + strlen(dir);
+	if (*pend == 0 || *pend == ';')
+	  return 0;                     /* Already in BEGINLIBPATH - ignore silently */
     }
 
-    if (strlen(dir) + strlen(suffix) + 1 >= sizeof(beginlibpath))
-        return 0;                       /* Fail silently if too long */
+    old_blp_len = strlen(beginlibpath);
+    if (old_blp_len)
+      new_blp_len += strlen(suffix);
+
+    if (new_blp_len >= BLP_BUF_BYTES) {
+	if (isPathList) {
+	    ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01578)
+		          "update_beginlibpath argument is %u bytes which exceeds %u limit\n", new_blp_len, BLP_BUF_BYTES);
+	return -1;
+	}
+	return 0;                       /* Fail silently if too long */
+    }
 
     strcpy(beginlibpath, dir);
-    strcat(beginlibpath, suffix);
+    if (old_blp_len)
+	    strcat(beginlibpath, suffix);
     apiret = DosSetExtLIBPATH((PCSZ)beginlibpath, BEGIN_LIBPATH);
 
     if (apiret != 0) {
-        ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01579)
-                     "update_beginlibpath DosSetExtLIBPATH failed with error %u", apiret);
-        return -1;
+	ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01579)
+		     "update_beginlibpath DosSetExtLIBPATH failed with error %lu", apiret);
+	return -1;
     }
 
     ap_log_perror(APLOG_MARK, APLOG_DEBUG, 0, cmd->pool, APLOGNO(01580)
-                 "update_beginlibpath set BEGINLIBPATH to %s", beginlibpath);
+		 "update_beginlibpath set BEGINLIBPATH to %s", beginlibpath);
 
     return 1;                           /* Report BEGINLIBPATH updated */
 }
 
-
 #endif // __OS2__
+
+#ifdef __OS2__ /* 2022-05-25 SHL BeginLibPath */
+
+/*
+ * This is called for the directive BegnLibPath and passes
+ * path the BEGINLIBPATH via DosSetExtLIBPATH
+ */
+
+static const char *set_beginlibpath(cmd_parms *cmd, void *dummy,
+                               const char *beginlibpath)
+{
+    /* We ignore errors here because any errors already reported */
+    update_beginlibpath(cmd, beginlibpath, 1);     /* arg is path list */
+
+    return NULL;
+}
+
+#endif /* 2022-05-25 SHL BeginLibPath */
 
 static const char *dso_load(cmd_parms *cmd, apr_dso_handle_t **modhandlep,
                             const char *filename, const char **used_filename)
@@ -238,7 +284,7 @@ static const char *dso_load(cmd_parms *cmd, apr_dso_handle_t **modhandlep,
            found in LIBPATH because module directory is not in LIBPATH
            Add module directory to BEGINLIBPATH and retry
         */
-        rv = update_beginlibpath(cmd, fullname);
+        rv = update_beginlibpath(cmd, fullname, 0);     /* arge is file pathname */
         /* update_beginlibpath has already complained, if needed */
         if (rv == 1) {
             /* BEGINLIBPATH updated - retry load */
@@ -509,6 +555,10 @@ static const command_rec so_cmds[] = {
       "a module name and the name of a shared object file to load it from"),
     AP_INIT_ITERATE("LoadFile", load_file, NULL, RSRC_CONF  | EXEC_ON_READ,
       "shared object file or library to load into the server at runtime"),
+#ifdef __OS2__ /* 2022-05-25 SHL */
+    AP_INIT_TAKE1("BeginLibPath", set_beginlibpath, NULL, RSRC_CONF | EXEC_ON_READ,
+      "path list to apply to OS/2 BEGINLIBPATH"),
+#endif
     { NULL }
 };
 
