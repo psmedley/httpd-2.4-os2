@@ -1,0 +1,22 @@
+This is a port of Apache/2.4.53 for OS/2 & eComStation.
+
+It was built using GCC v10.3.0 and requires the libc066 runtime dll from ftp://ftp.netlabs.org/pub/gcc/libc-0.6.6-csd6.zip & libcx from rpm
+
+Changes in v2.4.53
+- Updated apache source to 2.4.53
+- Updated to openssl 1.1.1n
+
+General feedback can be provided to paul@smedley.id.au, bug reports should go to http://mantis.smedley.id.au
+
+Important notes:
+- plugins for 2.2.x won't work, bug me for updates :)
+- httpd.conf *will* need updating, I've started to fix the DLL names in /apache24/conf/httpd.conf.sample but have only done the essentials needed to get the daemon started
+- this has had *minimal* testing!
+
+If you like this software and want to support continued ports, please consider donating via PayPal via the link at http://os2ports.smedley.id.au, via the Arca Noea webstore at http://www.arcanoae.com/shop/os2-ports-paul-smedley
+
+Cheers,
+
+Paul Smedley
+Adelaide, Australia
+18th March, 2022
