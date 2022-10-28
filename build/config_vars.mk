@@ -170,16 +170,16 @@ progname = httpd
 OS = os2
 OS_DIR = os2
 BUILTIN_LIBS = modules/core/libmod_so.la modules/http/libmod_http.la
-SHLIBPATH_VAR =
+SHLIBPATH_VAR = BEGINLIBPATH
 OS_SPECIFIC_VARS =
 PRE_SHARED_CMDS = echo ""
 POST_SHARED_CMDS = echo ""
 shared_build = shared-build
 INSTALL_SUEXEC = setuid
-AP_LIBS = $(MOD_SO_LDADD) $(MOD_HTTP_LDADD) -L/extras/lib -R/extras/lib -laprutil-1 -lexpat -L/extras/lib -R/extras/lib -lapr-1 -luuid
+AP_LIBS = $(MOD_SO_LDADD) $(MOD_HTTP_LDADD) /extras/lib/libaprutil-1.la -lexpat /extras/lib/libapr-1.la -luuid
 AP_BUILD_SRCLIB_DIRS =
 AP_CLEAN_SRCLIB_DIRS =
-HTTPD_VERSION = 2.4.53
+HTTPD_VERSION = 2.4.54
 HTTPD_MMN = 20120211
 abs_srcdir = U:/DEV/httpd-2.4-os2
 bindir = ${exec_prefix}/bin
@@ -209,10 +209,10 @@ CC = gcc
 CPP = gcc -E
 CXX = g++
 CPPFLAGS =
-CFLAGS = -D__EMX__ -DEMX -DOS2 -D__ST_MT_ERRNO__ -O2 -g -march=pentium -mtune=pentium4 -static-libgcc
-CXXFLAGS = -D__EMX__ -DEMX -DOS2 -D__ST_MT_ERRNO__ -O2 -g -march=pentium -mtune=pentium4 -static-libgcc
+CFLAGS = -D__EMX__ -DEMX -DOS2 -D__ST_MT_ERRNO__ -O2 -march=pentium -mtune=pentium4 -static-libgcc
+CXXFLAGS = -D__EMX__ -DEMX -DOS2 -D__ST_MT_ERRNO__ -O2 -march=pentium -mtune=pentium4 -static-libgcc
 LTFLAGS =
-LDFLAGS =  -Zexe -Zomf -Zmap -Zhigh-mem -Zstack 8000 -D__ST_MT_ERRNO__ -static-libgcc
+LDFLAGS = -s -Zexe -Zomf -Zmap -Zhigh-mem -Zstack 8000 -D__ST_MT_ERRNO__ -static-libgcc
 LT_LDFLAGS =
 SH_LDFLAGS =
 HTTPD_LDFLAGS = -export-dynamic
