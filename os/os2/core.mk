@@ -1,7 +1,7 @@
 # Some rules for making a shared core dll on OS/2
 
 os2core: httpd.dll $(CORE_IMPLIB)
-	$(LIBTOOL) --mode=link gcc -Zstack 2048 $(LDFLAGS) $(EXTRA_LDFLAGS) -o httpx $(CORE_IMPLIB) -lssl -lcrypto -lcx -lz 
+	$(LIBTOOL) --mode=link gcc $(LDFLAGS) $(EXTRA_LDFLAGS) -o httpx $(CORE_IMPLIB) -lssl -lcrypto -lcx -lz 
 	cp -p httpx.exe httpd.exe
 
 httpd.dll: $(PROGRAM_DEPENDENCIES) $(CORE_IMPLIB)

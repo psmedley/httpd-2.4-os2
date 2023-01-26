@@ -209,10 +209,10 @@ CC = gcc
 CPP = gcc -E
 CXX = g++
 CPPFLAGS =
-CFLAGS = -D__EMX__ -DEMX -DOS2 -D__ST_MT_ERRNO__ -O2 -march=pentium -mtune=pentium4 -static-libgcc
-CXXFLAGS = -D__EMX__ -DEMX -DOS2 -D__ST_MT_ERRNO__ -O2 -march=pentium -mtune=pentium4 -static-libgcc
+CFLAGS = -D__EMX__ -DEMX -DOS2 -D__ST_MT_ERRNO__ -O2 -g -march=pentium -mtune=pentium4 -static-libgcc
+CXXFLAGS = -D__EMX__ -DEMX -DOS2 -D__ST_MT_ERRNO__ -O2 -g -march=pentium -mtune=pentium4 -static-libgcc
 LTFLAGS =
-LDFLAGS = -s -Zexe -Zomf -Zmap -Zhigh-mem -Zstack 8000 -D__ST_MT_ERRNO__ -static-libgcc
+LDFLAGS =  -Zexe -Zomf -Zmap -Zhigh-mem -Zstack 12288 -D__ST_MT_ERRNO__ -static-libgcc
 LT_LDFLAGS =
 SH_LDFLAGS =
 HTTPD_LDFLAGS = -export-dynamic

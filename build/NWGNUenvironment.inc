@@ -221,13 +221,13 @@ ifeq "$(OS)" "Windows_NT"
 MWCW_MSL         = "$(METROWERKS)/MSL"
 MWCW_W32         = "$(METROWERKS)/Win32-x86 Support"
 CC_FOR_BUILD     = $(WIN_CC)
-CFLAGS_FOR_BUILD =  -O2 -gccinc -nodefaults -proc 586 -w off
+CFLAGS_FOR_BUILD =  -O2 -g -gccinc -nodefaults -proc 586 -w off
 CFLAGS_FOR_BUILD += -ir $(MWCW_MSL) -ir $(MWCW_W32) -lr $(MWCW_MSL) -lr $(MWCW_W32)
 CFLAGS_FOR_BUILD += -lMSL_All_x86.lib -lkernel32.lib -luser32.lib
 else
 # GNUC build flags to create build tools
 CC_FOR_BUILD     = gcc
-CFLAGS_FOR_BUILD = -Wall -O2
+CFLAGS_FOR_BUILD = -Wall -O2 -g
 endif
 
 # Base compile flags
