@@ -331,6 +331,7 @@ static apr_status_t socache_dbm_retrieve(ap_socache_instance_t *ctx, server_rec 
      */
     apr_pool_clear(ctx->pool);
 #if APU_MAJOR_VERSION > 1 || (APU_MAJOR_VERSION == 1 && APU_MINOR_VERSION >= 7)
+    // 2023-01-27 SHL FIXME looks like upstream error - rv should be rc ???
     if ((rv = apr_dbm_get_driver(&driver, NULL, &err,
             ctx->pool) != APR_SUCCESS) {
         ap_log_error(APLOG_MARK, APLOG_ERR, rv, s, APLOGNO(10279)
@@ -347,6 +348,8 @@ static apr_status_t socache_dbm_retrieve(ap_socache_instance_t *ctx, server_rec 
         return rc;
     }
 #else
+
+#ifndef __OS2__
     if ((rc = apr_dbm_open(&dbm, ctx->data_file, APR_DBM_RWCREATE,
                            DBM_FILE_MODE, ctx->pool)) != APR_SUCCESS) {
         ap_log_error(APLOG_MARK, APLOG_ERR, rc, s, APLOGNO(00809)
@@ -355,6 +358,42 @@ static apr_status_t socache_dbm_retrieve(ap_socache_instance_t *ctx, server_rec 
                      ctx->data_file);
         return rc;
     }
+#else
+    // 2023-01-27 SHL Retry intermittent permission denied because file opened elsewhere
+    {
+        #define RETRY_LIMIT 3
+        unsigned int retries;
+        for (retries = 0; retries < RETRY_LIMIT; retries++) {
+            rc = apr_dbm_open(&dbm, ctx->data_file,
+                              APR_DBM_RWCREATE, DBM_FILE_MODE, ctx->pool);
+            if (rc == APR_SUCCESS)
+                break;
+            // Hack cough
+#           ifndef ERROR_SHARING_VIOLATION
+#           define ERROR_SHARING_VIOLATION 32      /* MSG%SHARING_VIOLATION */
+#           endif
+            if (rc == APR_OS_START_SYSERR + ERROR_SHARING_VIOLATION)
+                continue;
+        } // for
+        if (retries >= RETRY_LIMIT) {
+            // Fail
+            ap_log_error(APLOG_MARK, APLOG_ERR, rc, s, APLOGNO(00807)
+                         "Cannot open socache DBM file `%s' for writing "
+                         "(store)",
+                         ctx->data_file);
+            return rc;
+        }
+        else if (retries > 0) {
+            // Notify
+            ap_log_error(APLOG_MARK, APLOG_NOTICE, rc, s, APLOGNO(00807)
+                         "apr_dbm_open required %u retries to open socache DBM file `%s' for writing "
+                         "(store)",
+                         retries,
+                         ctx->data_file);
+        }
+    }
+#endif
+
 #endif
     rc = apr_dbm_fetch(dbm, dbmkey, &dbmval);
     if (rc != APR_SUCCESS) {

@@ -765,10 +765,22 @@ static apr_status_t deflate_out_filter(ap_filter_t *f,
 
             if (zRC != Z_OK) {
                 deflateEnd(&ctx->stream);
+#if 1
+                // 2023-01-27 SHL More logging for Z_MEM_ERROR debugging
+                ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01383)
+                              "unable to init Zlib: "
+                              "deflateInit2 stream %p cmpressionlevel %u"
+                              " windowSize %u memlevel %u"
+                              " returned %d: URL %s",
+                              &ctx->stream, c->compressionlevel,
+                              c->windowSize, c->memlevel,
+                              zRC, r->uri);
+#else
                 ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(01383)
                               "unable to init Zlib: "
                               "deflateInit2 returned %d: URL %s",
                               zRC, r->uri);
+#endif
                 /*
                  * Remove ourselves as it does not make sense to return:
                  * We are not able to init libz and pass data down the chain
