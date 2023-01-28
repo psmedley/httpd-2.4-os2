@@ -372,18 +372,19 @@ static apr_status_t socache_dbm_retrieve(ap_socache_instance_t *ctx, server_rec 
 #           ifndef ERROR_SHARING_VIOLATION
 #           define ERROR_SHARING_VIOLATION 32      /* MSG%SHARING_VIOLATION */
 #           endif
-            if (rc == APR_OS_START_SYSERR + ERROR_SHARING_VIOLATION)
-                continue;
+            if (rc != APR_OS_START_SYSERR + ERROR_SHARING_VIOLATION)
+                break;
+            apr_sleep(1000 * 1000);     // 1 second
         } // for
-        if (retries >= RETRY_LIMIT) {
-            // Fail
+        if (rc != APR_SUCCESS) {
+            // Failed
             ap_log_error(APLOG_MARK, APLOG_ERR, rc, s, APLOGNO(00807)
                          "Cannot open socache DBM file `%s' for writing "
                          "(store)",
                          ctx->data_file);
             return rc;
         }
-        else if (retries > 0) {
+        if (retries > 0) {
             // Notify
             ap_log_error(APLOG_MARK, APLOG_NOTICE, rc, s, APLOGNO(00807)
                          "apr_dbm_open required %u retries to open socache DBM file `%s' for writing "
