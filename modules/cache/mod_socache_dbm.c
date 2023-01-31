@@ -361,7 +361,7 @@ static apr_status_t socache_dbm_retrieve(ap_socache_instance_t *ctx, server_rec 
 #else
     // 2023-01-27 SHL Retry intermittent permission denied because file opened elsewhere
     {
-        #define RETRY_LIMIT 3
+        #define RETRY_LIMIT 30		// 30 seconds
         unsigned int retries;
         for (retries = 0; retries < RETRY_LIMIT; retries++) {
             rc = apr_dbm_open(&dbm, ctx->data_file,
