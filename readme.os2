@@ -1,10 +1,10 @@
-This is a port of Apache/2.4.53 for OS/2 & eComStation.
+This is a port of Apache/2.4.55 for OS/2 & eComStation.
 
 It was built using GCC v10.3.0 and requires the libc066 runtime dll from ftp://ftp.netlabs.org/pub/gcc/libc-0.6.6-csd6.zip & libcx from rpm
 
-Changes in v2.4.53
-- Updated apache source to 2.4.53
-- Updated to openssl 1.1.1n
+Changes in v2.4.55
+- Updated apache source to 2.4.55
+- Updated to openssl 1.1.1q
 
 General feedback can be provided to paul@smedley.id.au, bug reports should go to http://mantis.smedley.id.au
 
@@ -13,10 +13,16 @@ Important notes:
 - httpd.conf *will* need updating, I've started to fix the DLL names in /apache24/conf/httpd.conf.sample but have only done the essentials needed to get the daemon started
 - this has had *minimal* testing!
 
+Steven Levine added support for the BeginLibPath httpd.conf directive.  This eliminates the need for a wrapper script to configure BEGINLIBPATH for httpd.  Typical usage is:
+
+  BeginLibPath "d:/Internet/php7;d:/Internet/php8"
+
+which will allow modphp to find and load the php DLLs.
+
 If you like this software and want to support continued ports, please consider donating via PayPal via the link at http://os2ports.smedley.id.au, via the Arca Noea webstore at http://www.arcanoae.com/shop/os2-ports-paul-smedley
 
 Cheers,
 
 Paul Smedley
 Adelaide, Australia
-18th March, 2022
+2nd February, 2023
