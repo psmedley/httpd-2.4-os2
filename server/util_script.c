@@ -25,11 +25,6 @@
 #include <stdlib.h>
 #endif
 
-// 2023-02-04 SHL
-#ifdef OS2
-#include <setjmp.h>
-#endif
-
 #include "ap_config.h"
 #include "httpd.h"
 #include "http_config.h"
@@ -95,39 +90,9 @@ static char *http2env(request_rec *r, const char *w)
 
 static void add_unless_null(apr_table_t *table, const char *name, const char *val)
 {
-    /* 2023-02-04 SHL avoid exceptions when name or val points to
-       uncommitted memory for reasons that are currently unknown.
-       This can occur when php's php_handler calls here to set up the
-       CGI environment.
-       If we ever figure out why, the try/catch code can go away.
-    */
-#ifndef OS2
     if (name && val) {
         apr_table_addn(table, name, val);
     }
-#else
-    // Hack cough assume module_index 0
-#   define SCRIPT_LOG_MARK  __FILE__,__LINE__,0 // module_index
-    jmp_buf env;
-
-    if (setjmp(env) == 0) {
-        if (name && val)
-            apr_table_addn(table, name, val);
-    }
-    else {
-        ap_log_error(SCRIPT_LOG_MARK, APLOG_ERR, 0, NULL,
-                     APLOGNO(02661) "Environment Setup Error: "
-                     "add_unless_null name %p or val %p point to uncommitted memory",
-                     name, val);
-
-        /* Since we do not return return code, retry the operation
-           to reflect exception upstream to caller
-        */
-        apr_table_addn(table, name, val);
-    }
-#   undef SCRIPT_LOG_MARK
-
-#endif // OS2
 }
 
 static void env2env(apr_table_t *table, const char *name)
