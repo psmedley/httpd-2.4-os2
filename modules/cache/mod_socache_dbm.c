@@ -595,6 +595,8 @@ static void socache_dbm_expire(ap_socache_instance_t *ctx, server_rec *s)
             break;
         }
 #else
+
+#ifndef __OS2__
         if ((rv = apr_dbm_open(&dbm, ctx->data_file, APR_DBM_RWCREATE,
                                DBM_FILE_MODE, ctx->pool)) != APR_SUCCESS) {
             ap_log_error(APLOG_MARK, APLOG_ERR, rv, s, APLOGNO(00811)
@@ -603,6 +605,45 @@ static void socache_dbm_expire(ap_socache_instance_t *ctx, server_rec *s)
                          ctx->data_file);
             break;
         }
+#else // __OS2__
+    // 2023-02-09 SHL Retry intermittent permission denied because file opened elsewhere
+    {
+        #define RETRY_LIMIT 30		// 30 seconds
+        unsigned int retries;
+        for (retries = 0; retries < RETRY_LIMIT; retries++) {
+
+	    rv = apr_dbm_open(&dbm, ctx->data_file, APR_DBM_RWCREATE,
+                              DBM_FILE_MODE, ctx->pool);
+
+            if (rv == APR_SUCCESS)
+                break;
+            // Hack cough
+#           ifndef ERROR_SHARING_VIOLATION
+#           define ERROR_SHARING_VIOLATION 32      /* MSG%SHARING_VIOLATION */
+#           endif
+            if (rv != APR_OS_START_SYSERR + ERROR_SHARING_VIOLATION)
+                break;
+            apr_sleep(1000 * 1000);     // 1 second
+        } // for
+        if (rv != APR_SUCCESS) {
+            // Failed
+            ap_log_error(APLOG_MARK, APLOG_ERR, rv, s, APLOGNO(00811)
+                         "Cannot open socache DBM file `%s' for "
+                         "scanning",
+                         ctx->data_file);
+            break;
+        }
+        if (retries > 0) {
+            // Notify
+            ap_log_error(APLOG_MARK, APLOG_NOTICE, rv, s, APLOGNO(00811)
+                         "apr_dbm_open required %u retries to open socache DBM file `%s' for "
+                         "scanning",
+                         retries,
+                         ctx->data_file);
+        }
+    }
+#endif
+
 #endif
         apr_dbm_firstkey(dbm, &dbmkey);
         while (dbmkey.dptr != NULL) {
