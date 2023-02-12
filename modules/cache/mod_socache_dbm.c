@@ -284,8 +284,9 @@ static apr_status_t socache_dbm_store(ap_socache_instance_t *ctx,
     }
 #else // __OS2__
     // 2023-02-02 SHL Retry intermittent permission denied because file opened elsewhere
+    // 2023-02-11 SHL Retry intermittent permission denied if file not deleted after closed elsewhere
     {
-        #define RETRY_LIMIT 30		// 30 seconds
+        #define RETRY_LIMIT 30          // 30 seconds
         unsigned int retries;
         for (retries = 0; retries < RETRY_LIMIT; retries++) {
 
@@ -298,9 +299,13 @@ static apr_status_t socache_dbm_store(ap_socache_instance_t *ctx,
             // Hack cough
 #           ifndef ERROR_SHARING_VIOLATION
 #           define ERROR_SHARING_VIOLATION 32      /* MSG%SHARING_VIOLATION */
+#           define ERROR_FILE_EXISTS       80
 #           endif
-            if (rv != APR_OS_START_SYSERR + ERROR_SHARING_VIOLATION)
+            if (rv != APR_OS_START_SYSERR + ERROR_SHARING_VIOLATION &&
+               rv != APR_OS_START_SYSERR + ERROR_FILE_EXISTS)
+            {
                 break;
+            }
             apr_sleep(1000 * 1000);     // 1 second
         } // for
         if (rv != APR_SUCCESS) {
@@ -402,7 +407,7 @@ static apr_status_t socache_dbm_retrieve(ap_socache_instance_t *ctx, server_rec 
 #else
     // 2023-01-27 SHL Retry intermittent permission denied because file opened elsewhere
     {
-        #define RETRY_LIMIT 30		// 30 seconds
+        #define RETRY_LIMIT 30          // 30 seconds
         unsigned int retries;
         for (retries = 0; retries < RETRY_LIMIT; retries++) {
             rc = apr_dbm_open(&dbm, ctx->data_file,
@@ -608,11 +613,11 @@ static void socache_dbm_expire(ap_socache_instance_t *ctx, server_rec *s)
 #else // __OS2__
     // 2023-02-09 SHL Retry intermittent permission denied because file opened elsewhere
     {
-        #define RETRY_LIMIT 30		// 30 seconds
+        #define RETRY_LIMIT 30          // 30 seconds
         unsigned int retries;
         for (retries = 0; retries < RETRY_LIMIT; retries++) {
 
-	    rv = apr_dbm_open(&dbm, ctx->data_file, APR_DBM_RWCREATE,
+            rv = apr_dbm_open(&dbm, ctx->data_file, APR_DBM_RWCREATE,
                               DBM_FILE_MODE, ctx->pool);
 
             if (rv == APR_SUCCESS)
