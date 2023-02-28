@@ -186,7 +186,8 @@ void ap_mpm_child_main(apr_pool_t *pconf)
     }
 
     /* Start maintenance thread */
-    server_maint_tid = _beginthread(server_maintenance, NULL, 32768, NULL);
+    /* 2023-02-28 SHL Increase from 32768 to 65536 */
+    server_maint_tid = _beginthread(server_maintenance, NULL, 65536, NULL);
 
     /* Set up poll */
     for (num_listeners = 0, lr = ap_listeners; lr; lr = lr->next) {
