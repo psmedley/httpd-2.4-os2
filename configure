@@ -3434,9 +3434,6 @@ HTTPD_MMN=`$abs_srcdir/build/get-version.sh mmn $abs_srcdir/include/ap_mmn.h MOD
 
 
 
-
-
-
 # Check whether --enable-layout was given.
 if test ${enable_layout+y}
 then :

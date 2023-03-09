@@ -452,43 +452,6 @@ fi
 
 
 dnl
-dnl APR_CHECK_SIZEOF_EXTENDED(INCLUDES, TYPE [, CROSS_SIZE])
-dnl
-dnl A variant of AC_CHECK_SIZEOF which allows the checking of
-dnl sizes of non-builtin types
-dnl
-AC_DEFUN([APR_CHECK_SIZEOF_EXTENDED],
-[changequote(<<, >>)dnl
-dnl The name to #define.
-define(<<AC_TYPE_NAME>>, translit(sizeof_$2, [a-z *], [A-Z_P]))dnl
-dnl The cache variable name.
-define(<<AC_CV_NAME>>, translit(ac_cv_sizeof_$2, [ *], [_p]))dnl
-changequote([, ])dnl
-AC_MSG_CHECKING(size of $2)
-AC_CACHE_VAL(AC_CV_NAME,
-[AC_TRY_RUN([#include <stdio.h>
-$1
-#ifdef WIN32
-#define binmode "b"
-#else
-#define binmode
-#endif
-main()
-{
-  FILE *f=fopen("conftestval", "w" binmode);
-  if (!f) exit(1);
-  fprintf(f, "%d\n", sizeof($2));
-  exit(0);
-}], AC_CV_NAME=`cat conftestval`, AC_CV_NAME=0, ifelse([$3],,,
-AC_CV_NAME=$3))])dnl
-AC_MSG_RESULT($AC_CV_NAME)
-AC_DEFINE_UNQUOTED(AC_TYPE_NAME, $AC_CV_NAME, [The size of ]$2)
-undefine([AC_TYPE_NAME])dnl
-undefine([AC_CV_NAME])dnl
-])
-
-
-dnl
 dnl APR_TRY_COMPILE_NO_WARNING(INCLUDES, FUNCTION-BODY,
 dnl             [ACTIONS-IF-NO-WARNINGS], [ACTIONS-IF-WARNINGS])
 dnl
@@ -505,7 +468,10 @@ AC_DEFUN([APR_TRY_COMPILE_NO_WARNING],
  fi
  AC_COMPILE_IFELSE(
   [AC_LANG_SOURCE(
-   [#include "confdefs.h"
+   [
+#ifndef PACKAGE_NAME
+#include "confdefs.h"
+#endif
    ]
    [[$1]]
    [int main(int argc, const char *const *argv) {]
@@ -526,12 +492,14 @@ dnl  string.
 dnl
 dnl
 AC_DEFUN([APR_CHECK_STRERROR_R_RC], [
-AC_MSG_CHECKING(for type of return code from strerror_r)
-AC_TRY_RUN([
+AC_CACHE_CHECK([whether return code from strerror_r has type int],
+[ac_cv_strerror_r_rc_int],
+[AC_TRY_RUN([
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
-main()
+#include <stdlib.h>
+int main(void)
 {
   char buf[1024];
   if (strerror_r(ERANGE, buf, sizeof buf) < 1) {
@@ -543,14 +511,10 @@ main()
 }], [
     ac_cv_strerror_r_rc_int=yes ], [
     ac_cv_strerror_r_rc_int=no ], [
-    ac_cv_strerror_r_rc_int=no ] )
+    ac_cv_strerror_r_rc_int=no ] ) ] )
 if test "x$ac_cv_strerror_r_rc_int" = xyes; then
   AC_DEFINE(STRERROR_R_RC_INT, 1, [Define if strerror returns int])
-  msg="int"
-else
-  msg="pointer"
 fi
-AC_MSG_RESULT([$msg])
 ] )
 
 dnl

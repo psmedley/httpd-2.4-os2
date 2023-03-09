@@ -1,5 +1,63 @@
                                                          -*- coding: utf-8 -*-
+Changes with Apache 2.4.56
+
+  *) rotatelogs: Add -T flag to allow subsequent rotated logfiles to be
+     truncated without the initial logfile being truncated.  [Eric Covener]
+
+  *) mod_ldap: LDAPConnectionPoolTTL should accept negative values in order to
+     allow connections of any age to be reused. Up to now, a negative value
+     was handled as an error when parsing the configuration file.  PR 66421.
+     [nailyk <bzapache nailyk.fr>, Christophe Jaillet]
+
+  *) mod_proxy_ajp: Report an error if the AJP backend sends an invalid number
+     of headers. [Ruediger Pluem]
+
+  *) mod_md:
+     - Enabling ED25519 support and certificate transparency information when
+       building with libressl v3.5.0 and newer. Thanks to Giovanni Bechis.
+     - MDChallengeDns01 can now be configured for individual domains.
+       Thanks to Jérôme Billiras (@bilhackmac) for the initial PR.
+     - Fixed a bug found by Jérôme Billiras (@bilhackmac) that caused the challenge
+       teardown not being invoked as it should.
+     [Stefan Eissing]
+
+  *) mod_http2: client resets of HTTP/2 streams led to unwanted 500 errors
+     reported in access logs and error documents. The processing of the
+     reset was correct, only unneccesary reporting was caused.
+     [Stefan Eissing]
+
+  *) mod_proxy_uwsgi: Stricter backend HTTP response parsing/validation.
+     [Yann Ylavic]
+
 Changes with Apache 2.4.55
+
+  *) SECURITY: CVE-2022-37436: Apache HTTP Server: mod_proxy prior to
+     2.4.55 allows a backend to trigger HTTP response splitting
+     (cve.mitre.org)
+     Prior to Apache HTTP Server 2.4.55, a malicious backend can
+     cause the response headers to be truncated early, resulting in
+     some headers being incorporated into the response body. If the
+     later headers have any security purpose, they will not be
+     interpreted by the client.
+     Credits: Dimas Fariski Setyawan Putra (@nyxsorcerer)
+
+  *) SECURITY: CVE-2022-36760: Apache HTTP Server: mod_proxy_ajp
+     Possible request smuggling (cve.mitre.org)
+     Inconsistent Interpretation of HTTP Requests ('HTTP Request
+     Smuggling') vulnerability in mod_proxy_ajp of Apache HTTP Server
+     allows an attacker to smuggle requests to the AJP server it
+     forwards requests to.  This issue affects Apache HTTP Server
+     Apache HTTP Server 2.4 version 2.4.54 and prior versions.
+     Credits: ZeddYu_Lu from Qi'anxin Research Institute of Legendsec
+     at Qi'anxin Group
+
+  *) SECURITY: CVE-2006-20001: mod_dav out of  bounds read, or write
+     of zero byte (cve.mitre.org)
+     A carefully crafted If: request header can cause a memory read,
+     or write of a single zero byte, in a pool (heap) memory location
+     beyond the header value sent. This could cause the process to
+     crash.
+     This issue affects Apache HTTP Server 2.4.54 and earlier.
 
   *) mod_dav: Open the lock database read-only when possible.
      PR 36636 [Wilson Felipe <wfelipe gmail.com>, manu]
@@ -15,7 +73,7 @@ Changes with Apache 2.4.55
 
   *) mod_proxy_hcheck: Honor worker timeout settings.  [Yann Ylavic]
 
-  *) mod_http2: version 2.0.10 of the module, synchronizing changes
+  *) mod_http2: version 2.0.11 of the module, synchronizing changes
      with the gitgub version. This is a partial rewrite of how connections
      and streams are handled.
      - an APR pollset and pipes (where supported) are used to monitor
