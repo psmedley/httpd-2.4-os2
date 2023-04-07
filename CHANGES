@@ -1,5 +1,57 @@
                                                          -*- coding: utf-8 -*-
+Changes with Apache 2.4.57
+
+  *) mod_proxy: Check before forwarding that a nocanon path has not been
+     rewritten with spaces during processing.  [Yann Ylavic]
+
+  *) mod_proxy: In case that AllowEncodedSlashes is set to NoDecode do not
+     double encode encoded slashes in the URL sent by the reverse proxy to the
+     backend. [Ruediger Pluem]
+
+  *) mod_http2: fixed a crash during connection termination. See PR 66539.
+     [Stefan Eissing]
+
+  *) mod_rewrite: Fix a 2.4.56 regression for substitutions ending
+     in a question mark. PR66547. [Eric Covener]
+
+  *) mod_rewrite: Add "BCTLS" and "BNE" RewriteRule flags. Re-allow encoded
+     characters on redirections without the "NE" flag. 
+     [Yann Ylavic, Eric Covener]
+
+  *) mod_proxy: Fix double encoding of the uri-path of the request forwarded
+     to the origin server, when using mapping=encoded|servlet.  [Yann Ylavic]
+
+  *) mod_mime: Do not match the extention against possible query string
+     parameters in case ProxyPass was used with the nocanon option.
+     [Ruediger Pluem]
+
 Changes with Apache 2.4.56
+
+  *) SECURITY: CVE-2023-27522: Apache HTTP Server: mod_proxy_uwsgi
+     HTTP response splitting (cve.mitre.org)
+     HTTP Response Smuggling vulnerability in Apache HTTP Server via
+     mod_proxy_uwsgi. This issue affects Apache HTTP Server: from
+     2.4.30 through 2.4.55.
+     Special characters in the origin response header can
+     truncate/split the response forwarded to the client.
+     Credits: Dimas Fariski Setyawan Putra (nyxsorcerer)
+
+  *) SECURITY: CVE-2023-25690: HTTP request splitting with
+     mod_rewrite and mod_proxy (cve.mitre.org)
+     Some mod_proxy configurations on Apache HTTP Server versions
+     2.4.0 through 2.4.55 allow a HTTP Request Smuggling attack.
+     Configurations are affected when mod_proxy is enabled along with
+     some form of RewriteRule or ProxyPassMatch in which a non-specific
+     pattern matches some portion of the user-supplied request-target (URL)
+     data and is then re-inserted into the proxied request-target
+     using variable substitution. For example, something like:
+        RewriteEngine on
+        RewriteRule "^/here/(.*)" "http://example.com:8080/elsewhere?$1"; [P]
+        ProxyPassReverse /here/  http://example.com:8080/
+     Request splitting/smuggling could result in bypass of access
+     controls in the proxy server, proxying unintended URLs to
+     existing origin servers, and cache poisoning.
+     Credits: Lars Krapf of Adobe
 
   *) rotatelogs: Add -T flag to allow subsequent rotated logfiles to be
      truncated without the initial logfile being truncated.  [Eric Covener]
@@ -112,6 +164,7 @@ Changes with Apache 2.4.55
        The checks for this in nghttp2 v1.50.0+ are disabled.
      - Extensive testing in production done by Alessandro Bianchi (@alexskynet)
        on the v2.0.x versions for stability. Many thanks!
+
   *) mod_proxy_http2: fixed #235 by no longer forwarding 'Host:' header when
      request ':authority' is known. Improved test case that did not catch that
      the previous 'fix' was incorrect.
@@ -318,6 +371,9 @@ Changes with Apache 2.4.54
      This gives trusted certificates for tailscale assigned
      domain names in the *.ts.net space.
      [Stefan Eissing]
+
+  *) core: Change default value of LimitRequestBody from 0 (unlimited)
+     to 1GB. [Eric Covener]
 
 Changes with Apache 2.4.53
 

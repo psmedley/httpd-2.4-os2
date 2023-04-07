@@ -200,14 +200,16 @@ PROXY_DECLARE(void) ap_proxy_c2hex(int ch, char *x)
  * and encodes those which must be encoded, and does not touch
  * those which must not be touched.
  */
-PROXY_DECLARE(char *)ap_proxy_canonenc(apr_pool_t *p, const char *x, int len,
-                                       enum enctype t, int forcedec,
-                                       int proxyreq)
+PROXY_DECLARE(char *)ap_proxy_canonenc_ex(apr_pool_t *p, const char *x, int len,
+                                          enum enctype t, int flags,
+                                          int proxyreq)
 {
     int i, j, ch;
     char *y;
     char *allowed;  /* characters which should not be encoded */
     char *reserved; /* characters which much not be en/de-coded */
+    int forcedec = flags & PROXY_CANONENC_FORCEDEC;
+    int noencslashesenc = flags & PROXY_CANONENC_NOENCODEDSLASHENCODING;
 
 /*
  * N.B. in addition to :@&=, this allows ';' in an http path
@@ -256,16 +258,28 @@ PROXY_DECLARE(char *)ap_proxy_canonenc(apr_pool_t *p, const char *x, int len,
  * decode it if not already done. do not decode reverse proxied URLs
  * unless specifically forced
  */
-        if ((forcedec || (proxyreq && proxyreq != PROXYREQ_REVERSE)) && ch == '%') {
+        if ((forcedec || noencslashesenc
+            || (proxyreq && proxyreq != PROXYREQ_REVERSE)) && ch == '%') {
             if (!apr_isxdigit(x[i + 1]) || !apr_isxdigit(x[i + 2])) {
                 return NULL;
             }
             ch = ap_proxy_hex2c(&x[i + 1]);
-            i += 2;
             if (ch != 0 && strchr(reserved, ch)) {  /* keep it encoded */
-                ap_proxy_c2hex(ch, &y[j]);
-                j += 2;
+                y[j++] = x[i++];
+                y[j++] = x[i++];
+                y[j] = x[i];
                 continue;
+            }
+            if (noencslashesenc && !forcedec && (proxyreq == PROXYREQ_REVERSE)) {
+                /*
+                 * In the reverse proxy case when we only want to keep encoded
+                 * slashes untouched revert back to '%' which will cause
+                 * '%' to be encoded in the following.
+                 */
+                ch = '%';
+            }
+            else {
+                i += 2;
             }
         }
 /* recode it, if necessary */
@@ -279,6 +293,22 @@ PROXY_DECLARE(char *)ap_proxy_canonenc(apr_pool_t *p, const char *x, int len,
     }
     y[j] = '\0';
     return y;
+}
+
+/*
+ * Convert a URL-encoded string to canonical form.
+ * It decodes characters which need not be encoded,
+ * and encodes those which must be encoded, and does not touch
+ * those which must not be touched.
+ */
+PROXY_DECLARE(char *)ap_proxy_canonenc(apr_pool_t *p, const char *x, int len,
+                                       enum enctype t, int forcedec,
+                                       int proxyreq)
+{
+    int flags;
+
+    flags = forcedec ? PROXY_CANONENC_FORCEDEC : 0;
+    return ap_proxy_canonenc_ex(p, x, len, t, flags, proxyreq);
 }
 
 /*
