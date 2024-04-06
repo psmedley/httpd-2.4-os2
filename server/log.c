@@ -55,7 +55,7 @@
 #include "ap_mpm.h"
 #include "ap_listen.h"
 
-#if HAVE_GETTID
+#ifdef HAVE_SYS_GETTID
 #include <sys/syscall.h>
 #include <sys/types.h>
 #endif
@@ -627,14 +627,18 @@ static int log_tid(const ap_errorlog_info *info, const char *arg,
 #if APR_HAS_THREADS
     int result;
 #endif
-#if HAVE_GETTID
+#if defined(HAVE_GETTID) || defined(HAVE_SYS_GETTID)
     if (arg && *arg == 'g') {
+#ifdef HAVE_GETTID
+        pid_t tid = gettid();
+#else
         pid_t tid = syscall(SYS_gettid);
+#endif
         if (tid == -1)
             return 0;
         return apr_snprintf(buf, buflen, "%"APR_PID_T_FMT, tid);
     }
-#endif
+#endif /* HAVE_GETTID || HAVE_SYS_GETTID */
 #if APR_HAS_THREADS
     if (ap_mpm_query(AP_MPMQ_IS_THREADED, &result) == APR_SUCCESS
         && result != AP_MPMQ_NOT_SUPPORTED)
@@ -652,14 +656,32 @@ static int log_ctime(const ap_errorlog_info *info, const char *arg,
     int time_len = buflen;
     int option = AP_CTIME_OPTION_NONE;
 
-    while (arg && *arg) {
-        switch (*arg) {
-            case 'u':   option |= AP_CTIME_OPTION_USEC;
-                        break;
-            case 'c':   option |= AP_CTIME_OPTION_COMPACT;
-                        break;
+    if (arg) {
+        if (arg[0] == 'u' && !arg[1]) { /* no ErrorLogFormat (fast path) */
+            option |= AP_CTIME_OPTION_USEC;
         }
-        arg++;
+        else if (!ap_strchr_c(arg, '%')) { /* special "%{cuz}t" formats */
+            while (*arg) {
+                switch (*arg++) {
+                case 'u':
+                    option |= AP_CTIME_OPTION_USEC;
+                    break;
+                case 'c':
+                    option |= AP_CTIME_OPTION_COMPACT;
+                    break;
+                case 'z':
+                    option |= AP_CTIME_OPTION_GMTOFF;
+                    break;
+                }
+            }
+        }
+        else { /* "%{strftime %-format}t" */
+            apr_size_t len = 0;
+            apr_time_exp_t expt;
+            ap_explode_recent_localtime(&expt, apr_time_now());
+            apr_strftime(buf, &len, buflen, arg, &expt);
+            return (int)len;
+        }
     }
 
     ap_recent_ctime_ex(buf, apr_time_now(), option, &time_len);
@@ -1166,6 +1188,11 @@ static void log_error_core(const char *file, int line, int module_index,
 #endif
 
         logf = stderr_log;
+
+        /* Use the main ErrorLogFormat if any */
+        if (ap_server_conf) {
+            sconf = ap_get_core_module_config(ap_server_conf->module_config);
+        }
     }
     else {
         int configured_level = r ? ap_get_request_module_loglevel(r, module_index)        :
@@ -1218,6 +1245,10 @@ static void log_error_core(const char *file, int line, int module_index,
                     add_log_id(c, rmain);
                 }
             }
+        }
+        else if (ap_server_conf) {
+            /* Use the main ErrorLogFormat if any */
+            sconf = ap_get_core_module_config(ap_server_conf->module_config);
         }
     }
 

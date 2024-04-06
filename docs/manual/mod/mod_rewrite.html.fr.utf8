@@ -385,7 +385,11 @@ la réécriture soit effectuée
 		  <dd>La partie chemin de l'URI de la requête, comme
 		  "/index.html". Ceci exclut en particulier la chaîne de
 		  paramètres de la requête qui est contenue dans la
-		  variable <code>QUERY_STRING</code>.</dd>
+		  variable <code>QUERY_STRING</code>. La valeur renvoyée pour
+		  <code>REQUEST_URI</code> a déjà été %-décodée ; pour la
+		  recoder, passez-la à la <a href="#mapfunc">fonction de
+		  mappage</a> "escape".
+		  </dd>
 
                   <dt><code>THE_REQUEST</code></dt>
 
@@ -1411,9 +1415,9 @@ substitution !
     </tr>
 <tr>
         <td>B</td>
-        <td>Echappe les caractères non-alphanumériques
-	dans les références arrières <em>avant</em>
-	d'appliquer la transformation. <em><a href="../rewrite/flags.html#flag_b">détails ...</a></em></td>
+        <td>Echappe les caractères non-alphanumériques dans les références
+	arrières <em>avant</em> d'appliquer la transformation. Pour un
+	échappement similaire des variables du serveur, voir la <a href="#mapfunc">fonction de mappage</a> "escape".<em><a href="../rewrite/flags.html#flag_b">détails ...</a></em></td>
     </tr>
 <tr class="odd">
         <td>BCTLS</td>
@@ -1722,7 +1726,7 @@ var comments_identifier = 'http://httpd.apache.org/docs/2.4/mod/mod_rewrite.html
     }
 })(window, document);
 //--><!]]></script></div><div id="footer">
-<p class="apache">Copyright 2023 The Apache Software Foundation.<br />Autorisé sous <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
+<p class="apache">Copyright 2024 The Apache Software Foundation.<br />Autorisé sous <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
 <p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();

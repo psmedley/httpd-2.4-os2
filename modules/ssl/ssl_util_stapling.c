@@ -29,9 +29,9 @@
                                             -- Alexei Sayle          */
 
 #include "ssl_private.h"
+
 #include "ap_mpm.h"
 #include "apr_thread_mutex.h"
-#include "mod_ssl_openssl.h"
 
 APR_IMPLEMENT_OPTIONAL_HOOK_RUN_ALL(ssl, SSL, int, init_stapling_status,
                                     (server_rec *s, apr_pool_t *p, 
@@ -117,8 +117,10 @@ static X509 *stapling_get_issuer(modssl_ctx_t *mctx, X509 *x)
     }
 
     inctx = X509_STORE_CTX_new();
-    if (!X509_STORE_CTX_init(inctx, st, NULL, NULL))
+    if (!X509_STORE_CTX_init(inctx, st, NULL, NULL)) {
+        X509_STORE_CTX_free(inctx);
         return 0;
+    }
     if (X509_STORE_CTX_get1_issuer(&issuer, inctx, x) <= 0)
         issuer = NULL;
     X509_STORE_CTX_cleanup(inctx);
@@ -445,7 +447,7 @@ static int stapling_check_response(server_rec *s, modssl_ctx_t *mctx,
             rv = SSL_TLSEXT_ERR_NOACK;
         }
 
-        if (status != V_OCSP_CERTSTATUS_GOOD) {
+        if (status != V_OCSP_CERTSTATUS_GOOD && pok) {
             char snum[MAX_STRING_LEN] = { '\0' };
             BIO *bio = BIO_new(BIO_s_mem());
 
@@ -466,12 +468,6 @@ static int stapling_check_response(server_rec *s, modssl_ctx_t *mctx,
                          (reason != OCSP_REVOKED_STATUS_NOSTATUS) ?
                          OCSP_crl_reason_str(reason) : "n/a",
                          snum[0] ? snum : "[n/a]");
-
-            if (mctx->stapling_return_errors == FALSE) {
-                if (pok)
-                    *pok = FALSE;
-                rv = SSL_TLSEXT_ERR_NOACK;
-            }
         }
     }
 
