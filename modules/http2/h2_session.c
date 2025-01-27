@@ -323,9 +323,13 @@ static int on_header_cb(nghttp2_session *ngh2, const nghttp2_frame *frame,
         (!stream->rtmp ||
          stream->rtmp->http_status == H2_HTTP_STATUS_UNSET ||
          /* We accept a certain amount of failures in order to reply
-          * with an informative HTTP error response like 413. But if the
-          * client is too wrong, we fail the request a RESET of the stream */
+          * with an informative HTTP error response like 413. But of the
+          * client is too wrong, we RESET the stream */
          stream->request_headers_failed > 100)) {
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, session->c1,
+                      H2_SSSN_STRM_MSG(session, frame->hd.stream_id,
+                      "RST stream, header failures: %d"),
+                      (int)stream->request_headers_failed);
         return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
     }
     return 0;
@@ -359,9 +363,11 @@ static int on_frame_recv_cb(nghttp2_session *ng2s,
         else {
             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, session->c1,
                           H2_SSSN_LOG(APLOGNO(03066), session,
-                          "recv FRAME[%s], frames=%ld/%ld (r/s)"),
+                          "recv FRAME[%s], frames=%ld/%ld (r/s), "
+                          "remote.emitted=%d"),
                           buffer, (long)session->frames_received,
-                         (long)session->frames_sent);
+                         (long)session->frames_sent,
+                         (int)session->remote.emitted_count);
         }
     }
 
@@ -1498,7 +1504,8 @@ static void h2_session_ev_conn_error(h2_session *session, int arg, const char *m
         default:
             ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, session->c1,
                           H2_SSSN_LOG(APLOGNO(03401), session, 
-                          "conn error -> shutdown"));
+                          "conn error -> shutdown, remote.emitted=%d"),
+                          (int)session->remote.emitted_count);
             h2_session_shutdown(session, arg, msg, 0);
             break;
     }
@@ -1591,9 +1598,7 @@ static void ev_stream_created(h2_session *session, h2_stream *stream)
 static void ev_stream_open(h2_session *session, h2_stream *stream)
 {
     if (H2_STREAM_CLIENT_INITIATED(stream->id)) {
-        ++session->remote.emitted_count;
-        if (stream->id > session->remote.emitted_max) {
-            session->remote.emitted_max = stream->id;
+        if (stream->id > session->remote.accepted_max) {
             session->local.accepted_max = stream->id;
         }
     }
@@ -1762,12 +1767,22 @@ static void unblock_c1_out(h2_session *session) {
     }
 }
 
-apr_status_t h2_session_process(h2_session *session, int async)
+static int h2_send_flow_blocked(h2_session *session)
+{
+    /* We are completely send blocked if either the connection window
+     * is 0 or all stream flow windows are 0. */
+    return ((nghttp2_session_get_remote_window_size(session->ngh2) <= 0) ||
+             h2_mplx_c1_all_streams_send_win_exhausted(session->mplx));
+}
+
+apr_status_t h2_session_process(h2_session *session, int async,
+                                int *pkeepalive)
 {
     apr_status_t status = APR_SUCCESS;
     conn_rec *c = session->c1;
     int rv, mpm_state, trace = APLOGctrace3(c);
 
+    *pkeepalive = 0;
     if (trace) {
         ap_log_cerror( APLOG_MARK, APLOG_TRACE3, status, c,
                       H2_SSSN_MSG(session, "process start, async=%d"), async);
@@ -1880,7 +1895,8 @@ apr_status_t h2_session_process(h2_session *session, int async)
                         /* Not an async mpm, we must continue waiting
                          * for client data to arrive until the configured
                          * server Timeout/KeepAliveTimeout happens */
-                        apr_time_t timeout = (session->open_streams == 0)?
+                        apr_time_t timeout = ((session->open_streams == 0) &&
+                                              session->remote.emitted_count)?
                             session->s->keep_alive_timeout :
                             session->s->timeout;
                         ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, c,
@@ -1922,6 +1938,14 @@ apr_status_t h2_session_process(h2_session *session, int async)
             break;
 
         case H2_SESSION_ST_WAIT:
+            /* In this state, we might have returned processing to the MPM
+             * before. On a connection socket event, we are invoked again and
+             * need to process any input before proceeding. */
+            h2_c1_read(session);
+            if (session->state != H2_SESSION_ST_WAIT) {
+                break;
+            }
+
             status = h2_c1_io_assure_flushed(&session->io);
             if (APR_SUCCESS != status) {
                 h2_session_dispatch_event(session, H2_SESSION_EV_CONN_ERROR, status, NULL);
@@ -1934,8 +1958,16 @@ apr_status_t h2_session_process(h2_session *session, int async)
                     break;
                 }
             }
-            /* No IO happening and input is exhausted. Make sure we have
-             * flushed any possibly pending output and then wait with
+            else if (async && h2_send_flow_blocked(session)) {
+                /* By returning to the MPM, we do not block a worker
+                 * and async wait for the client send window updates. */
+                ap_log_cerror(APLOG_MARK, APLOG_DEBUG, status, c,
+                              H2_SSSN_LOG(APLOGNO(10502), session,
+                              "BLOCKED, return to mpm c1 monitoring"));
+                goto leaving;
+            }
+
+            /* No IO happening and input is exhausted. Wait with
              * the c1 connection timeout for sth to happen in our c1/c2 sockets/pipes */
             ap_log_cerror(APLOG_MARK, APLOG_TRACE2, status, c,
                           H2_SSSN_MSG(session, "polling timeout=%d, open_streams=%d"),
@@ -1976,9 +2008,13 @@ apr_status_t h2_session_process(h2_session *session, int async)
     }
 
 leaving:
+    /* entering KeepAlive timing when we have no more open streams AND
+     * we have processed at least one stream. */
+    *pkeepalive = (session->open_streams == 0 && session->remote.emitted_count);
     if (trace) {
-        ap_log_cerror( APLOG_MARK, APLOG_TRACE3, status, c,
-                      H2_SSSN_MSG(session, "process returns")); 
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE3, status, c,
+                      H2_SSSN_MSG(session, "process returns, keepalive=%d"),
+                      *pkeepalive);
     }
     h2_mplx_c1_going_keepalive(session->mplx);
 

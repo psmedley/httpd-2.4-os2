@@ -3,9 +3,11 @@
 import json
 import os
 import time
+from datetime import timedelta
 import pytest
+from pyhttpd.certs import CertificateSpec
 
-from .md_conf import MDConf, MDConf
+from .md_conf import MDConf
 from .md_env import MDTestEnv
 
 
@@ -46,6 +48,16 @@ class TestMessage:
         stat = env.get_md_status(domain)
         # this command should have failed and logged an error
         assert stat["renewal"]["last"]["problem"] == "urn:org:apache:httpd:log:AH10109:"
+        #
+        env.httpd_error_log.ignore_recent(
+            lognos = [
+                "AH10056"   # None of the offered challenge types
+            ],
+            matches = [
+                r'.*urn:org:apache:httpd:log:AH10109:.*',
+                r'.*problem\[challenge-setup-failure\].*'
+            ]
+        )
 
     # test: signup with configured message cmd that is valid but returns != 0
     def test_md_901_002(self, env):
@@ -63,6 +75,16 @@ class TestMessage:
         stat = env.get_md_status(domain)
         # this command should have failed and logged an error
         assert stat["renewal"]["last"]["problem"] == "urn:org:apache:httpd:log:AH10109:"
+        #
+        env.httpd_error_log.ignore_recent(
+            lognos = [
+                "AH10056"   # None of the offered challenge types
+            ],
+            matches = [
+                r'.*urn:org:apache:httpd:log:AH10109:.*',
+                r'.*problem\[challenge-setup-failure\].*'
+            ]
+        )
 
     # test: signup with working message cmd and see that it logs the right things
     def test_md_901_003(self, env):
@@ -135,13 +157,16 @@ class TestMessage:
         domain = self.test_domain
         domains = [domain, 'www.%s' % domain]
         testpath = os.path.join(env.gen_dir, 'test_901_010')
-        # cert that is only 10 more days valid
-        env.create_self_signed_cert(domains, {"notBefore": -70, "notAfter": 20},
-                                    serial=901010, path=testpath)
+        env.mkpath(testpath)
+        # cert that is only 20 more days valid
+        creds = env.create_self_signed_cert(CertificateSpec(domains=domains),
+                                            valid_from=timedelta(days=-70),
+                                            valid_to=timedelta(days=20),
+                                            serial=901010)
         cert_file = os.path.join(testpath, 'pubcert.pem')
         pkey_file = os.path.join(testpath, 'privkey.pem')
-        assert os.path.exists(cert_file)
-        assert os.path.exists(pkey_file)
+        creds.save_cert_pem(cert_file)
+        creds.save_pkey_pem(pkey_file)
         conf = MDConf(env)
         conf.add(f"MDMessageCmd {self.mcmd} {self.mlog}")
         conf.start_md(domains)
@@ -158,13 +183,16 @@ class TestMessage:
         domain = self.test_domain
         domains = [domain, f'www.{domain}']
         testpath = os.path.join(env.gen_dir, 'test_901_011')
-        # cert that is only 10 more days valid
-        env.create_self_signed_cert(domains, {"notBefore": -85, "notAfter": 5},
-                                    serial=901011, path=testpath)
+        env.mkpath(testpath)
+        # cert that is only 5 more days valid
+        creds = env.create_self_signed_cert(CertificateSpec(domains=domains),
+                                            valid_from=timedelta(days=-85),
+                                            valid_to=timedelta(days=5),
+                                            serial=901010)
         cert_file = os.path.join(testpath, 'pubcert.pem')
         pkey_file = os.path.join(testpath, 'privkey.pem')
-        assert os.path.exists(cert_file)
-        assert os.path.exists(pkey_file)
+        creds.save_cert_pem(cert_file)
+        creds.save_pkey_pem(pkey_file)
         conf = MDConf(env)
         conf.add(f"MDMessageCmd {self.mcmd} {self.mlog}")
         conf.start_md(domains)
@@ -247,7 +275,6 @@ class TestMessage:
                     assert job["last"]["problem"] == "urn:org:apache:httpd:log:AH10109:"
                     break
             time.sleep(0.1)
-        env.httpd_error_log.ignore_recent()
 
         # reconfigure to a working notification command and restart
         conf = MDConf(env)
@@ -294,4 +321,13 @@ class TestMessage:
         stat = env.get_md_status(domain)
         # this command should have failed and logged an error
         assert stat["renewal"]["last"]["problem"] == "challenge-setup-failure"
-
+        #
+        env.httpd_error_log.ignore_recent(
+            lognos = [
+                "AH10056"   # None of the offered challenge types
+            ],
+            matches = [
+                r'.*urn:org:apache:httpd:log:AH10109:.*',
+                r'.*problem\[challenge-setup-failure\].*'
+            ]
+        )

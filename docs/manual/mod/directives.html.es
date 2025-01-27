@@ -743,21 +743,6 @@
 <li><a href="mpm_common.html#threadsperchild">ThreadsPerChild</a></li>
 <li><a href="mpm_common.html#threadstacksize">ThreadStackSize</a></li>
 <li><a href="core.html#timeout">TimeOut</a></li>
-<li><a href="mod_tls.html#tlscertificate">TLSCertificate</a></li>
-<li><a href="mod_tls.html#tlsciphersprefer">TLSCiphersPrefer</a></li>
-<li><a href="mod_tls.html#tlscipherssuppress">TLSCiphersSuppress</a></li>
-<li><a href="mod_tls.html#tlsengine">TLSEngine</a></li>
-<li><a href="mod_tls.html#tlshonorclientorder">TLSHonorClientOrder</a></li>
-<li><a href="mod_tls.html#tlsoptions">TLSOptions</a></li>
-<li><a href="mod_tls.html#tlsprotocol">TLSProtocol</a></li>
-<li><a href="mod_tls.html#tlsproxyca">TLSProxyCA</a></li>
-<li><a href="mod_tls.html#tlsproxyciphersprefer">TLSProxyCiphersPrefer</a></li>
-<li><a href="mod_tls.html#tlsproxycipherssuppress">TLSProxyCiphersSuppress</a></li>
-<li><a href="mod_tls.html#tlsproxyengine">TLSProxyEngine</a></li>
-<li><a href="mod_tls.html#tlsproxymachinecertificate">TLSProxyMachineCertificate</a></li>
-<li><a href="mod_tls.html#tlsproxyprotocol">TLSProxyProtocol</a></li>
-<li><a href="mod_tls.html#tlssessioncache">TLSSessionCache</a></li>
-<li><a href="mod_tls.html#tlsstrictsni">TLSStrictSNI</a></li>
 <li><a href="core.html#traceenable">TraceEnable</a></li>
 <li><a href="mod_log_config.html#transferlog">TransferLog</a></li>
 <li><a href="mod_mime.html#typesconfig">TypesConfig</a></li>
@@ -814,7 +799,7 @@ var comments_identifier = 'http://httpd.apache.org/docs/2.4/mod/directives.html'
     }
 })(window, document);
 //--><!]]></script></div><div id="footer">
-<p class="apache">Copyright 2024 The Apache Software Foundation.<br />Licencia bajo los t&#233;rminos de la <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
+<p class="apache">Copyright 2025 The Apache Software Foundation.<br />Licencia bajo los t&#233;rminos de la <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
 <p class="menu"><a href="../mod/">M&#243;dulos</a> | <a href="../mod/directives.html">Directivas</a> | <a href="http://wiki.apache.org/httpd/FAQ">Preguntas Frecuentes</a> | <a href="../glossary.html">Glosario</a> | <a href="../sitemap.html">Mapa del sitio web</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();

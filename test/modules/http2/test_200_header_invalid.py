@@ -1,3 +1,4 @@
+import re
 import pytest
 
 from .env import H2Conf, H2TestEnv
@@ -28,6 +29,15 @@ class TestInvalidHeaders:
                 assert 500 == r.response["status"], f'unexpected status for char 0x{x:02}'
             else:
                 assert 0 != r.exit_code, f'unexpected exit code for char 0x{x:02}'
+        #
+        env.httpd_error_log.ignore_recent(
+            lognos = [
+                "AH02429"   # Response header name contains invalid characters
+            ],
+            matches = [
+                r'.*malformed header from script \'hecho.py\': Bad header: x.*'
+            ]
+        )
 
     # let the hecho.py CGI echo chars < 0x20 in field value
     # for almost all such characters, the stream returns a 500
@@ -46,6 +56,12 @@ class TestInvalidHeaders:
                     assert 500 == r.response["status"], f'unexpected status for char 0x{x:02}'
                 else:
                     assert 0 != r.exit_code, "unexpected exit code for char 0x%02x" % x
+        #
+        env.httpd_error_log.ignore_recent(
+            lognos = [
+                "AH02430"   # Response header value contains invalid characters
+            ]
+        )
 
     # let the hecho.py CGI echo 0x10 and 0x7f in field name and value
     def test_h2_200_03(self, env):
@@ -63,6 +79,13 @@ class TestInvalidHeaders:
                 assert 500 == r.response["status"], f"unexpected exit code for char 0x{h:02}"
             else:
                 assert 0 != r.exit_code
+        #
+        env.httpd_error_log.ignore_recent(
+            lognos = [
+                "AH02429",  # Response header name contains invalid characters
+                "AH02430"   # Response header value contains invalid characters
+            ]
+        )
 
     # test header field lengths check, LimitRequestLine
     def test_h2_200_10(self, env):
@@ -205,3 +228,59 @@ class TestInvalidHeaders:
         r = env.nghttp().get(url, options=opt)
         assert r.exit_code == 0, r
         assert r.response is None
+
+    # test few failed headers, should
+    def test_h2_200_17(self, env):
+        url = env.mkurl("https", "cgi", "/")
+
+    # test few failed headers, should give response
+    def test_h2_200_17(self, env):
+        conf = H2Conf(env)
+        conf.add("""
+            LimitRequestFieldSize 20
+            LogLevel http2:debug
+            """)
+        conf.add_vhost_cgi()
+        conf.install()
+        assert env.apache_restart() == 0
+        re_emitted = re.compile(r'.* (AH03401: .* shutdown,|'
+                                r'AH03066: .* FRAME\[GOAWAY.*) remote.emitted=1')
+        url = env.mkurl("https", "cgi", "/")
+        opt = []
+        for i in range(10):
+            opt += ["-H", f"x{i}: 012345678901234567890123456789"]
+        r = env.curl_get(url, options=opt)
+        assert r.response
+        assert r.response["status"] == 431
+        assert env.httpd_error_log.scan_recent(re_emitted)
+
+    # test too many failed headers, should give RST
+    def test_h2_200_18(self, env):
+        conf = H2Conf(env)
+        conf.add("""
+            LimitRequestFieldSize 20
+            LogLevel http2:debug
+            """)
+        conf.add_vhost_cgi()
+        conf.install()
+        assert env.apache_restart() == 0
+        re_emitted = re.compile(r'.* (AH03401: .* shutdown,|'
+                                r'AH03066: .* FRAME\[GOAWAY.*) remote.emitted=1')
+        url = env.mkurl("https", "cgi", "/")
+        opt = []
+        for i in range(100):
+            opt += ["-H", f"x{i}: 012345678901234567890123456789"]
+        r = env.curl_get(url, options=opt)
+        assert r.response is None
+        assert env.httpd_error_log.scan_recent(re_emitted)
+
+    # test header 10 invalid headers, should trigger stream RST
+    def test_h2_200_19(self, env):
+        url = env.mkurl("https", "cgi", "/")
+        opt = []
+        invalid = '\x7f'
+        for i in range(10):
+            opt += ["-H", f"x{i}: {invalid}"]
+        r = env.curl_get(url, options=opt)
+        assert r.response is None
+

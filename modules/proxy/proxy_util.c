@@ -1358,8 +1358,6 @@ PROXY_DECLARE(apr_status_t) ap_proxy_initialize_balancer(proxy_balancer *balance
         ap_log_error(APLOG_MARK, APLOG_CRIT, 0, s, APLOGNO(00921) "slotmem_attach failed");
         return APR_EGENERAL;
     }
-    if (balancer->lbmethod && balancer->lbmethod->reset)
-        balancer->lbmethod->reset(balancer, s);
 
 #if APR_HAS_THREADS
     if (balancer->tmutex == NULL) {
@@ -1828,18 +1826,41 @@ static int ap_proxy_strcmp_ematch(const char *str, const char *expected)
     return 0;
 }
 
+static int worker_matches(proxy_worker *worker,
+                          const char *url, apr_size_t url_len,
+                          apr_size_t min_match, apr_size_t *max_match,
+                          unsigned int mask)
+{
+    apr_size_t name_len = strlen(worker->s->name_ex);
+    if (name_len <= url_len
+        && name_len > *max_match
+        /* min_match is the length of the scheme://host part only of url,
+         * so it's used as a fast path to avoid the match when url is too
+         * small, but it's irrelevant when the worker host contains globs
+         * (i.e. ->is_host_matchable).
+         */
+        && (worker->s->is_name_matchable
+            ? ((mask & AP_PROXY_WORKER_IS_MATCH)
+               && (worker->s->is_host_matchable || name_len >= min_match)
+               && !ap_proxy_strcmp_ematch(url, worker->s->name_ex))
+            : ((mask & AP_PROXY_WORKER_IS_PREFIX)
+               && (name_len >= min_match)
+               && !strncmp(url, worker->s->name_ex, name_len)))) {
+        *max_match = name_len;
+        return 1;
+    }
+    return 0;
+}
+
 PROXY_DECLARE(proxy_worker *) ap_proxy_get_worker_ex(apr_pool_t *p,
                                                      proxy_balancer *balancer,
                                                      proxy_server_conf *conf,
                                                      const char *url,
                                                      unsigned int mask)
 {
-    proxy_worker *worker;
     proxy_worker *max_worker = NULL;
-    int max_match = 0;
-    int url_length;
-    int min_match;
-    int worker_name_length;
+    apr_size_t min_match, max_match = 0;
+    apr_size_t url_len;
     const char *c;
     char *url_copy;
     int i;
@@ -1860,8 +1881,8 @@ PROXY_DECLARE(proxy_worker *) ap_proxy_get_worker_ex(apr_pool_t *p,
         return NULL;
     }
 
-    url_length = strlen(url);
-    url_copy = apr_pstrmemdup(p, url, url_length);
+    url_len = strlen(url);
+    url_copy = apr_pstrmemdup(p, url, url_len);
 
     /* Default to lookup for both _PREFIX and _MATCH workers */
     if (!(mask & (AP_PROXY_WORKER_IS_PREFIX | AP_PROXY_WORKER_IS_MATCH))) {
@@ -1887,48 +1908,28 @@ PROXY_DECLARE(proxy_worker *) ap_proxy_get_worker_ex(apr_pool_t *p,
         ap_str_tolower(url_copy);
         min_match = strlen(url_copy);
     }
+
     /*
      * Do a "longest match" on the worker name to find the worker that
      * fits best to the URL, but keep in mind that we must have at least
      * a minimum matching of length min_match such that
      * scheme://hostname[:port] matches between worker and url.
      */
-
     if (balancer) {
-        proxy_worker **workers = (proxy_worker **)balancer->workers->elts;
-        for (i = 0; i < balancer->workers->nelts; i++, workers++) {
-            worker = *workers;
-            if ( ((worker_name_length = strlen(worker->s->name_ex)) <= url_length)
-                && (worker_name_length >= min_match)
-                && (worker_name_length > max_match)
-                && (worker->s->is_name_matchable
-                    || ((mask & AP_PROXY_WORKER_IS_PREFIX)
-                        && strncmp(url_copy, worker->s->name_ex,
-                                   worker_name_length) == 0))
-                && (!worker->s->is_name_matchable
-                    || ((mask & AP_PROXY_WORKER_IS_MATCH)
-                        && ap_proxy_strcmp_ematch(url_copy,
-                                                  worker->s->name_ex) == 0)) ) {
-                max_worker = worker;
-                max_match = worker_name_length;
+        proxy_worker **worker = (proxy_worker **)balancer->workers->elts;
+        for (i = 0; i < balancer->workers->nelts; i++, worker++) {
+            if (worker_matches(*worker, url_copy, url_len,
+                               min_match, &max_match, mask)) {
+                max_worker = *worker;
             }
         }
-    } else {
-        worker = (proxy_worker *)conf->workers->elts;
+    }
+    else {
+        proxy_worker *worker = (proxy_worker *)conf->workers->elts;
         for (i = 0; i < conf->workers->nelts; i++, worker++) {
-            if ( ((worker_name_length = strlen(worker->s->name_ex)) <= url_length)
-                && (worker_name_length >= min_match)
-                && (worker_name_length > max_match)
-                && (worker->s->is_name_matchable
-                    || ((mask & AP_PROXY_WORKER_IS_PREFIX)
-                        && strncmp(url_copy, worker->s->name_ex,
-                                   worker_name_length) == 0))
-                && (!worker->s->is_name_matchable
-                    || ((mask & AP_PROXY_WORKER_IS_MATCH)
-                        && ap_proxy_strcmp_ematch(url_copy,
-                                                  worker->s->name_ex) == 0)) ) {
+            if (worker_matches(worker, url_copy, url_len,
+                               min_match, &max_match, mask)) {
                 max_worker = worker;
-                max_match = worker_name_length;
             }
         }
     }
@@ -1974,7 +1975,7 @@ PROXY_DECLARE(char *) ap_proxy_define_worker_ex(apr_pool_t *p,
             && (ptr = ap_strchr_c(url + 5, '|'))) {
         rv = apr_uri_parse(p, apr_pstrmemdup(p, url, ptr - url), &uri);
         if (rv == APR_SUCCESS) {
-            sockpath = ap_runtime_dir_relative(p, uri.path);;
+            sockpath = ap_runtime_dir_relative(p, uri.path);
             ptr++;    /* so we get the scheme for the uds */
         }
         else {
@@ -2040,7 +2041,7 @@ PROXY_DECLARE(char *) ap_proxy_define_worker_ex(apr_pool_t *p,
     if (!uri.scheme) {
         return apr_pstrcat(p, "URL must be absolute!: ", url, NULL);
     }
-    if (!uri.hostname) {
+    if (!uri.hostname || !*uri.hostname) {
         if (sockpath) {
             /* allow for unix:/path|http: */
             uri.hostname = "localhost";
@@ -2134,6 +2135,7 @@ PROXY_DECLARE(char *) ap_proxy_define_worker_ex(apr_pool_t *p,
     wshared->was_malloced = (mask & AP_PROXY_WORKER_IS_MALLOCED) != 0;
     if (mask & AP_PROXY_WORKER_IS_MATCH) {
         wshared->is_name_matchable = 1;
+        wshared->is_host_matchable = (address_not_reusable != 0);
 
         /* Before AP_PROXY_WORKER_IS_MATCH (< 2.4.47), a regex worker with
          * dollar substitution was never matched against any actual URL, thus
@@ -2429,14 +2431,14 @@ static int ap_proxy_retry_worker(const char *proxy_function, proxy_worker *worke
  * were passed a UDS url (eg: from mod_proxy) and adjust uds_path
  * as required.  
  */
-PROXY_DECLARE(int) ap_proxy_fixup_uds_filename(request_rec *r) 
+static int fixup_uds_filename(request_rec *r) 
 {
     char *uds_url = r->filename + 6, *origin_url;
 
     if (!strncmp(r->filename, "proxy:", 6) &&
             !ap_cstr_casecmpn(uds_url, "unix:", 5) &&
             (origin_url = ap_strchr(uds_url + 5, '|'))) {
-        char *uds_path = NULL;
+        char *uds_path = NULL, *col;
         apr_uri_t urisock;
         apr_status_t rv;
 
@@ -2448,9 +2450,10 @@ PROXY_DECLARE(int) ap_proxy_fixup_uds_filename(request_rec *r)
                                                   || !urisock.hostname[0])) {
             uds_path = ap_runtime_dir_relative(r->pool, urisock.path);
         }
-        if (!uds_path) {
+        if (!uds_path || !(col = ap_strchr(origin_url, ':'))) {
             ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(10292)
                     "Invalid proxy UDS filename (%s)", r->filename);
+            apr_table_unset(r->notes, "uds_path");
             return HTTP_BAD_REQUEST;
         }
         apr_table_setn(r->notes, "uds_path", uds_path);
@@ -2459,12 +2462,152 @@ PROXY_DECLARE(int) ap_proxy_fixup_uds_filename(request_rec *r)
                 "*: fixup UDS from %s: %s (%s)",
                 r->filename, origin_url, uds_path);
 
-        /* Overwrite the UDS part in place */
-        memmove(uds_url, origin_url, strlen(origin_url) + 1);
+        /* The hostname part of the URL is not mandated for UDS though
+         * the canon_handler hooks will require it. ProxyPass URLs are
+         * fixed at load time by adding "localhost" automatically in the
+         * worker URL, but SetHandler "proxy:unix:/udspath|scheme:[//]"
+         * URLs are not so we have to fix it here the same way.
+         */
+        if (!col[1]) {
+            /* origin_url is "scheme:" */
+            r->filename = apr_pstrcat(r->pool, "proxy:",
+                                      origin_url, "//localhost",
+                                      NULL);
+        }
+        /* For a SetHandler "proxy:..." in a <Location "/path">, the "/path"
+         * is appended to r->filename, hence the below origin_url cases too:
+         */
+        else if (col[1] == '/' && (col[2] != '/'    /* "scheme:/path" */
+                                   || col[3] == '/' /* "scheme:///path" */
+                                   || !col[3])) {   /* "scheme://" */
+            char *scheme = origin_url;
+            *col = '\0'; /* nul terminate scheme */
+            if (col[2] != '/') {
+                origin_url = col + 1;
+            }
+            else {
+                origin_url = col + 3;
+            }
+            r->filename = apr_pstrcat(r->pool, "proxy:",
+                                      scheme, "://localhost",
+                                      origin_url, NULL);
+        }
+        else {
+            /* origin_url is normal "scheme://host/path", can overwrite
+             * the UDS part of r->filename in place.
+             */
+            memmove(uds_url, origin_url, strlen(origin_url) + 1);
+        }
         return OK;
     }
 
+    apr_table_unset(r->notes, "uds_path");
     return DECLINED;
+}
+
+/* Deprecated (unused upstream) */
+PROXY_DECLARE(int) ap_proxy_fixup_uds_filename(request_rec *r)
+{
+    return fixup_uds_filename(r);
+}
+
+PROXY_DECLARE(const char *) ap_proxy_interpolate(request_rec *r,
+                                                 const char *str)
+{
+    /* Interpolate an env str in a configuration string
+     * Syntax ${var} --> value_of(var)
+     * Method: replace one var, and recurse on remainder of string
+     * Nothing clever here, and crap like nested vars may do silly things
+     * but we'll at least avoid sending the unwary into a loop
+     */
+    const char *start;
+    const char *end;
+    const char *var;
+    const char *val;
+    const char *firstpart;
+
+    start = ap_strstr_c(str, "${");
+    if (start == NULL) {
+        return str;
+    }
+    end = ap_strchr_c(start+2, '}');
+    if (end == NULL) {
+        return str;
+    }
+    /* OK, this is syntax we want to interpolate.  Is there such a var ? */
+    var = apr_pstrmemdup(r->pool, start+2, end-(start+2));
+    val = apr_table_get(r->subprocess_env, var);
+    firstpart = apr_pstrmemdup(r->pool, str, (start-str));
+
+    if (val == NULL) {
+        return apr_pstrcat(r->pool, firstpart,
+                           ap_proxy_interpolate(r, end+1), NULL);
+    }
+    else {
+        return apr_pstrcat(r->pool, firstpart, val,
+                           ap_proxy_interpolate(r, end+1), NULL);
+    }
+}
+
+static apr_array_header_t *proxy_vars(request_rec *r, apr_array_header_t *hdr)
+{
+    int i;
+    apr_array_header_t *ret = apr_array_make(r->pool, hdr->nelts,
+                                             sizeof (struct proxy_alias));
+    struct proxy_alias *old = (struct proxy_alias *) hdr->elts;
+
+    for (i = 0; i < hdr->nelts; ++i) {
+        struct proxy_alias *newcopy = apr_array_push(ret);
+        newcopy->fake = (old[i].flags & PROXYPASS_INTERPOLATE)
+                        ? ap_proxy_interpolate(r, old[i].fake) : old[i].fake;
+        newcopy->real = (old[i].flags & PROXYPASS_INTERPOLATE)
+                        ? ap_proxy_interpolate(r, old[i].real) : old[i].real;
+    }
+    return ret;
+}
+
+PROXY_DECLARE(int) ap_proxy_canon_url(request_rec *r)
+{
+    char *url, *p;
+    int access_status;
+    proxy_dir_conf *dconf = ap_get_module_config(r->per_dir_config,
+                                                 &proxy_module);
+
+    if (!r->proxyreq || !r->filename || strncmp(r->filename, "proxy:", 6) != 0)
+        return DECLINED;
+
+    /* Put the UDS path appart if any (and not already stripped) */
+    if (r->proxyreq == PROXYREQ_REVERSE) {
+        access_status = fixup_uds_filename(r);
+        if (ap_is_HTTP_ERROR(access_status)) {
+            return access_status;
+        }
+    }
+
+    /* Keep this after fixup_uds_filename() */
+    url = apr_pstrdup(r->pool, r->filename + 6);
+
+    if ((dconf->interpolate_env == 1) && (r->proxyreq == PROXYREQ_REVERSE)) {
+        /* create per-request copy of reverse proxy conf,
+         * and interpolate vars in it
+         */
+        proxy_req_conf *rconf = apr_palloc(r->pool, sizeof(proxy_req_conf));
+        ap_set_module_config(r->request_config, &proxy_module, rconf);
+        rconf->raliases = proxy_vars(r, dconf->raliases);
+        rconf->cookie_paths = proxy_vars(r, dconf->cookie_paths);
+        rconf->cookie_domains = proxy_vars(r, dconf->cookie_domains);
+    }
+
+    /* canonicalise each specific scheme */
+    if ((access_status = proxy_run_canon_handler(r, url))) {
+        return access_status;
+    }
+
+    p = strchr(url, ':');
+    if (p == NULL || p == url)
+        return HTTP_BAD_REQUEST;
+
+    return OK;      /* otherwise; we've done the best we can */
 }
 
 PROXY_DECLARE(int) ap_proxy_pre_request(proxy_worker **worker,
@@ -2476,16 +2619,16 @@ PROXY_DECLARE(int) ap_proxy_pre_request(proxy_worker **worker,
 
     access_status = proxy_run_pre_request(worker, balancer, r, conf, url);
     if (access_status == DECLINED && *balancer == NULL) {
-        const int forward = (r->proxyreq == PROXYREQ_PROXY);
+        /* UDS path stripped from *url by proxy_fixup() already */
         *worker = ap_proxy_get_worker_ex(r->pool, NULL, conf, *url,
-                                         forward ? AP_PROXY_WORKER_NO_UDS : 0);
+                                         AP_PROXY_WORKER_NO_UDS);
         if (*worker) {
             ap_log_rerror(APLOG_MARK, APLOG_TRACE2, 0, r,
                           "%s: found worker %s for %s",
                           (*worker)->s->scheme, (*worker)->s->name_ex, *url);
             access_status = OK;
         }
-        else if (forward) {
+        else if (r->proxyreq == PROXYREQ_PROXY) {
             if (conf->forward) {
                 ap_log_rerror(APLOG_MARK, APLOG_TRACE2, 0, r,
                               "*: found forward proxy worker for %s", *url);
@@ -2520,19 +2663,6 @@ PROXY_DECLARE(int) ap_proxy_pre_request(proxy_worker **worker,
         ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r, APLOGNO(00934)
                       "all workers are busy.  Unable to serve %s", *url);
         access_status = HTTP_SERVICE_UNAVAILABLE;
-    }
-
-    if (access_status == OK && r->proxyreq == PROXYREQ_REVERSE) {
-        int rc = ap_proxy_fixup_uds_filename(r);
-        if (ap_is_HTTP_ERROR(rc)) {
-            return rc;
-        }
-        /* If the URL has changed in r->filename, take everything after
-         * the "proxy:" prefix.
-         */
-        if (rc == OK) {
-            *url = apr_pstrdup(r->pool, r->filename + 6);
-        }
     }
 
     return access_status;
@@ -3904,7 +4034,7 @@ PROXY_DECLARE(int) ap_proxy_connect_backend(const char *proxy_function,
                 worker->s->error_time = apr_time_now();
                 worker->s->status |= PROXY_WORKER_IN_ERROR;
                 ap_log_error(APLOG_MARK, APLOG_ERR, 0, s, APLOGNO(00959)
-                    "ap_proxy_connect_backend disabling worker for (%s:%hu) "
+                    "ap_proxy_connect_backend disabling worker for (%s:%d) "
                     "for %" APR_TIME_T_FMT "s",
                     worker->s->hostname_ex, (int)worker->s->port,
                     apr_time_sec(worker->s->retry));

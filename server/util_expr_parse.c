@@ -1326,7 +1326,7 @@ YYSTYPE yylval;
 
   goto yysetstate;
 
-  /* TODO: comppiler warning that this is unused, and it seems to */
+  /* TODO: compiler warning that this is unused, and it seems to */
   (void)yynerrs;
 /*------------------------------------------------------------.
 | yynewstate -- Push a new state, which is found in yystate.  |

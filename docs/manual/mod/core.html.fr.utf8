@@ -33,8 +33,6 @@
 <a href="../ja/mod/core.html" hreflang="ja" rel="alternate" title="Japanese">&nbsp;ja&nbsp;</a> |
 <a href="../tr/mod/core.html" hreflang="tr" rel="alternate" title="Türkçe">&nbsp;tr&nbsp;</a></p>
 </div>
-<div class="outofdate">Cette traduction peut être périmée. Vérifiez la version
-            anglaise pour les changements récents.</div>
 <table class="module"><tr><th><a href="module-dict.html#Description">Description:</a></th><td>Fonctionnalités de base du serveur HTTP Apache toujours
 disponibles</td></tr>
 <tr><th><a href="module-dict.html#Status">Statut:</a></th><td>Noyau httpd</td></tr></table>
@@ -571,9 +569,8 @@ All pour les versions antérieures</code></td></tr>
       activée.
       </p></div>
 
-      <div class="example"><p><code>
-      AllowOverride Options=Indexes,MultiViews
-      </code></p></div>
+      <pre class="prettyprint lang-config">AllowOverride Options=Indexes,MultiViews</pre>
+
       
       </dd>
     </dl>
@@ -1739,8 +1736,16 @@ ErrorLogFormat "[%t] [%l] [pid %P] %F: %E: [client %a] %M"</pre>
 <tr><td><code>%{u}t</code></td>
         <td>L'heure courante avec les microsecondes</td></tr>
 <tr class="odd"><td><code>%{cu}t</code></td>
-        <td>L'heure courante au format compact ISO 8601, avec les
+        <td>L'heure courante au format ISO 8601 étendu (compact), avec les
 	microsecondes</td></tr>
+<tr><td><code>%{cuz}t</code></td>
+        <td>L'heure actuelle au format ISO 8601 étendu (compact), avec les
+	microsecondes et la zone horaire au format standard ISO 8601:2000.
+	Disponible depuis la version 2.4.58 seulement</td></tr>
+<tr class="odd"><td><code>%{%-format}t</code></td>
+        <td>L'heure actuelle formatée selon la fonction
+	<code>strftime(3)</code>. Disponible depuis la version 2.4.58
+	seulement</td></tr>
 <tr><td><code>%v</code></td>
         <td>Le nom de serveur canonique <code class="directive"><a href="#servername">ServerName</a></code> du serveur courant.</td></tr>
 <tr class="odd"><td><code>%V</code></td>
@@ -3204,7 +3209,7 @@ XML</td></tr>
     <p>Exemple :</p>
 
     <pre class="prettyprint lang-config"># Limitation à 1 Mo
-LimitXMLRequestBody 1073741824</pre>
+LimitXMLRequestBody 1048576</pre>
 
 
 
@@ -5358,17 +5363,38 @@ dernière.
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
 <div class="directive-section"><h2><a name="unclist" id="unclist">Directive</a> <a name="UNCList" id="UNCList">UNCList</a></h2>
 <table class="directive">
-<tr><th><a href="directive-dict.html#Description">Description:</a></th><td>Controls what UNC host names can be accessed by the server
+<tr><th><a href="directive-dict.html#Description">Description:</a></th><td>Définit quels sont les noms d’hôte UNC auxquels le serveur peut accéder
 </td></tr>
-<tr><th><a href="directive-dict.html#Syntax">Syntaxe:</a></th><td><code>UNCList<var>hostname</var> ...</code></td></tr>
+<tr><th><a href="directive-dict.html#Syntax">Syntaxe:</a></th><td><code>UNCList <var>hostname</var> [<var>hostname</var>...]</code></td></tr>
 <tr><th><a href="directive-dict.html#Default">Défaut:</a></th><td><code>unset</code></td></tr>
 <tr><th><a href="directive-dict.html#Context">Contexte:</a></th><td>configuration globale</td></tr>
 <tr><th><a href="directive-dict.html#Status">Statut:</a></th><td>Noyau httpd</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>core</td></tr>
-<tr><th><a href="directive-dict.html#Compatibility">Compatibilité:</a></th><td>Added in 2.4.60, Windows only.</td></tr>
-</table><p>La documentation de cette directive
-	n'a pas encore t traduite. Veuillez vous reporter  la version
-	en langue anglaise.</p></div>
+<tr><th><a href="directive-dict.html#Compatibility">Compatibilité:</a></th><td>Windows seulement. Disponible à partir de la version 2.4.60 du
+serveur HTTP Apache.</td></tr>
+</table>
+    <p>Au cours de leur traitement, les requêtes pour accéder à un chemin du
+    système de fichiers qui aboutissent à un chemin UNC échoueront si le nom
+    d’hôte dans le chemin UNC n’a pas été spécifié par cette directive. Le but
+    est de limiter l’accès aux chemins dérivés d’entrées non fiables.</p>
+
+    <pre class="prettyprint lang-config">UNCList example.com other.example.com</pre>
+
+
+    <div class="warning"><h3>Sécurité</h3>
+    <p>Les chemins UNC accédés en dehors du traitement d’une requête, par
+    exemple au cours du démarrage, ne font pas nécessairement l’objet d’une
+    vérification par rapport aux noms d’hôte configurés avec cette directive.</p>
+    </div>
+
+    <div class="warning"><h3>Ordre des directives</h3>
+    <p>Cette directive doit être placée avant les chemins UNC utilisés dans le
+    fichier httpd.conf. Plusieurs occurences de la directive redéfinissent la
+    liste.</p>
+    </div>
+
+
+</div>
 <div class="top"><a href="#page-header"><img alt="top" src="../images/up.gif" /></a></div>
 <div class="directive-section"><h2><a name="undefine" id="undefine">Directive</a> <a name="UnDefine" id="UnDefine">UnDefine</a></h2>
 <table class="directive">
@@ -5504,7 +5530,7 @@ détermine son propre port</td></tr>
      <ol>
       <li>Port indiqué dans <code class="directive"><a href="#servername">Servername</a></code></li>
       <li>Port physique</li>
-      <li>Port par défaut</li>
+      <li>Port par défaut pour le contexte/protocole (comme 80 ou 443)</li>
      </ol>
      </dd>
      <dt><code>UseCanonicalName Off | DNS</code></dt>
@@ -5513,7 +5539,7 @@ détermine son propre port</td></tr>
       <li>Port spécifié dans l'en-tête <code>Host:</code></li>
       <li>Port physique</li>
       <li>Port spécifié par <code class="directive"><a href="#servername">Servername</a></code></li>
-      <li>Port par défaut</li>
+      <li>Port par défaut pour le contexte/protocole (comme 80 ou 443)</li>
      </ol>
      </dd>
      </dl>
@@ -5677,7 +5703,7 @@ var comments_identifier = 'http://httpd.apache.org/docs/2.4/mod/core.html';
     }
 })(window, document);
 //--><!]]></script></div><div id="footer">
-<p class="apache">Copyright 2024 The Apache Software Foundation.<br />Autorisé sous <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
+<p class="apache">Copyright 2025 The Apache Software Foundation.<br />Autorisé sous <a href="http://www.apache.org/licenses/LICENSE-2.0">Apache License, Version 2.0</a>.</p>
 <p class="menu"><a href="../mod/">Modules</a> | <a href="../mod/directives.html">Directives</a> | <a href="http://wiki.apache.org/httpd/FAQ">FAQ</a> | <a href="../glossary.html">Glossaire</a> | <a href="../sitemap.html">Plan du site</a></p></div><script type="text/javascript"><!--//--><![CDATA[//><!--
 if (typeof(prettyPrint) !== 'undefined') {
     prettyPrint();

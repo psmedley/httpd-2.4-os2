@@ -493,6 +493,7 @@ typedef struct {
     unsigned int     address_ttl_set:1;
     apr_int32_t      address_ttl;    /* backend address' TTL (seconds) */
     apr_uint32_t     address_expiry; /* backend address' next expiry time */
+    unsigned int     is_host_matchable:1;
 } proxy_worker_shared;
 
 #define ALIGNED_PROXY_WORKER_SHARED_SIZE (APR_ALIGN_DEFAULT(sizeof(proxy_worker_shared)))
@@ -1008,6 +1009,7 @@ PROXY_DECLARE(proxy_balancer_shared *) ap_proxy_find_balancershm(ap_slotmem_prov
  * r->notes ("uds_path")
  * @param r        current request
  * @return         OK if fixed up, DECLINED if not UDS, or an HTTP_XXX error
+ * @remark Deprecated (for internal use only)
  */
 PROXY_DECLARE(int) ap_proxy_fixup_uds_filename(request_rec *r);
 

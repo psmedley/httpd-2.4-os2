@@ -1,5 +1,154 @@
                                                          -*- coding: utf-8 -*-
+Changes with Apache 2.4.63
+
+  *) mod_dav: Update redirect-carefully example BrowserMatch config
+     to match more recent client versions.  PR 66148, 67039.
+     [Michal Maloszewski <michal.maloszewski canonical.com>,
+      Romain Tartière <romain blogreen.org>]
+
+  *) mod_cache_socache: Fix possible crash on error path. PR 69358.
+     [Ruediger Pluem]
+
+  *) mod_ssl: Fail cleanly at startup if OpenSSL initialization fails.
+     [StephenWall]
+
+  *) mod_md: update to version 2.4.31
+     - Improved error reporting when waiting for ACME server to verify domains
+       or finalizing the order fails, e.g. times out.
+     - Increasing the timeouts to wait for ACME server to verify domain names
+       and issue the certificate from 30 seconds to 5 minutes.
+     - Change a log level from error to debug when Stapling is enabled but a
+       certificate carries no OCSP responder URL.
+
+  *) mod_proxy_balancer: Fix the handling of the stickysession configuration
+     parameter by the balancer manager. PR 69510
+     [Yutaka Tokunou <tokunou.yutaka@fujitsu.com>]
+
+  *) Add the ldap-search option to mod_authnz_ldap, allowing authorization
+     to be based on arbitrary expressions that do not include the username.
+     Make sure that when ldap searches are too long, we explicitly log the
+     error. [Graham Leggett]
+
+  *) mod_proxy: Honor parameters of ProxyPassMatch workers with substitution
+     in the host name or port. PR 69233. [Yann Ylavic]
+
+  *) mod_log_config: Fix merging for the "LogFormat" directive.
+     PR 65222. [Michael Kaufmann <mail michael-kaufmann.ch>]
+
+  *) mod_lua: Make r.ap_auth_type writable.  PR 62497.
+     [Michael Osipov <michaelo apache.org>]
+
+  *) mod_md: update to version 2.4.29
+     - Fixed HTTP-01 challenges to not carry a final newline, as some ACME
+       server fail to ignore it. [Michael Kaufmann (@mkauf)]
+     - Fixed missing label+newline in server-status plain text output when
+       MDStapling is enabled.
+
+  *) mod_ssl: Restore support for loading PKCS#11 keys via ENGINE
+     without "SSLCryptoDevice" configured.  [Joe Orton]
+
+  *) mod_authnz_ldap: Fix possible memory corruption if the
+     AuthLDAPSubGroupAttribute directive is configured.  [Joe Orton]  
+
+  *) mod_proxy_fcgi: Don't re-encode SCRIPT_FILENAME when set via SetHandler.
+     PR 69203. [Yann Ylavic]
+
+  *) mod_rewrite, mod_proxy: mod_proxy to canonicalize rewritten [P] URLs,
+     including "unix:" ones.  PR 69235, PR 69260.  [Yann Ylavic, Ruediger Pluem]
+
+  *) mod_rewrite: Error out in case a RewriteRule in directory context uses the
+     proxy, but mod_proxy is not loaded. PR 56264.
+     [Christophe Jaillet, Michael Streeter <mstreeter1@gmail.com>]
+
+  *) http: Remove support for Request-Range header sent by Navigator 2-3 and
+     MSIE 3. [Stefan Fritsch]
+
+  *) mod_rewrite: Don't require [UNC] flag to preserve a leading //
+     added by applying the perdir prefix to the substitution.
+     [Ruediger Pluem, Eric Covener]
+
+  *) Windows: Restore the ability to "Include" configuration files on UNC
+     paths. PR 69313 [Eric Covener]
+
+  *) mod_proxy: Avoid AH01059 parsing error for SetHandler "unix:" URLs
+     in <Location> (incomplete fix in 2.4.62). PR 69160. [Yann Ylavic]
+
+  *) mod_md: update to version 2.4.28
+     - When the server starts, it looks for new, staged certificates to
+       activate. If the staged set of files in 'md/staging/<domain>' is messed
+       up, this could prevent further renewals to happen. Now, when the staging
+       set is present, but could not be activated due to an error, purge the
+       whole directory. [icing]
+     - Fix certificate retrieval on ACME renewal to not require a 'Location:'
+       header returned by the ACME CA. This was the way it was done in ACME
+       before it became an IETF standard. Let's Encrypt still supports this,
+       but other CAs do not. [icing]
+     - Restore compatibility with OpenSSL < 1.1. [ylavic]
+
+  *) mod_tls: removed the experimental module. It now is availble standalone
+     from https://github.com/icing/mod_tls. The rustls provided API is not
+     stable and does not align with the httpd release cycle.
+     [Stefan Eissing]
+
+  *) mod_rewrite: Better question mark tracking to avoid UnsafeAllow3F.
+     PR 69197. [Yann Ylavic, Eric Covener]
+
+  *) mod_http2: Return connection monitoring to the event MPM when blocking
+     on client updates. [Stefan Eissing, Yann Ylavic]
+
+Changes with Apache 2.4.62
+
+  *) SECURITY: CVE-2024-40898: Apache HTTP Server: SSRF with
+     mod_rewrite in server/vhost context on Windows (cve.mitre.org)
+     SSRF in Apache HTTP Server on Windows with mod_rewrite in
+     server/vhost context, allows to potentially leak NTML hashes to
+     a malicious server via SSRF and malicious requests.
+     Users are recommended to upgrade to version 2.4.62 which fixes
+     this issue.
+     Credits: Smi1e (DBAPPSecurity Ltd.)
+
+  *) SECURITY: CVE-2024-40725: Apache HTTP Server: source code
+     disclosure with handlers configured via AddType (cve.mitre.org)
+     A partial fix for CVE-2024-39884 in the core of Apache HTTP
+     Server 2.4.61 ignores some use of the legacy content-type based
+     configuration of handlers. "AddType" and similar configuration,
+     under some circumstances where files are requested indirectly,
+     result in source code disclosure of local content. For example,
+     PHP scripts may be served instead of interpreted.
+     Users are recommended to upgrade to version 2.4.62, which fixes
+     this issue.
+
+  *) mod_proxy: Fix canonicalisation and FCGI env (PATH_INFO, SCRIPT_NAME) for
+     "balancer:" URLs set via SetHandler, also allowing for "unix:" sockets
+     with BalancerMember(s).  PR 69168.  [Yann Ylavic]
+
+  *) mod_proxy: Avoid AH01059 parsing error for SetHandler "unix:" URLs.
+     PR 69160 [Yann Ylavic]
+
+  *) mod_ssl: Fix crashes in PKCS#11 ENGINE support with OpenSSL 3.2.
+     [Joe Orton]
+
+  *) mod_ssl: Add support for loading certs/keys from pkcs11: URIs
+     via OpenSSL 3.x providers.  [Ingo Franzki <ifranzki linux.ibm.com>]
+
+  *) mod_ssl: Restore SSL dumping on trace7 loglevel with OpenSSL >= 3.0.
+     [Ruediger Pluem, Yann Ylavic]
+
+  *) mpm_worker: Fix possible warning (AH00045) about children processes not
+     terminating timely.  [Yann Ylavic]
+
 Changes with Apache 2.4.61
+
+  *) SECURITY: CVE-2024-39884: Apache HTTP Server: source code
+     disclosure with handlers configured via AddType (cve.mitre.org)
+     A regression in the core of Apache HTTP Server 2.4.60 ignores
+     some use of the legacy content-type based configuration of
+     handlers.   "AddType" and similar configuration, under some
+     circumstances where files are requested indirectly, result in
+     source code disclosure of local content. For example, PHP
+     scripts may be served instead of interpreted.
+     Users are recommended to upgrade to version 2.4.61, which fixes
+     this issue.
 
 Changes with Apache 2.4.60
 
@@ -67,7 +216,7 @@ Changes with Apache 2.4.60
      crafted requests.
      Credits: Orange Tsai (@orange_8361) from DEVCORE
 
-  *) SECURITY: CVE-2024-38472: Apache HTTP Server on WIndows UNC SSRF
+  *) SECURITY: CVE-2024-38472: Apache HTTP Server on Windows UNC SSRF
      (cve.mitre.org)
      SSRF in Apache HTTP Server on Windows allows to potentially leak
      NTML hashes to a malicious server via SSRF and malicious
@@ -87,7 +236,7 @@ Changes with Apache 2.4.60
      Credits: Marc Stern (<marc.stern AT approach-cyber.com>)
 
   *) mod_proxy: Fix DNS requests and connections closed before the
-     configured addressTTL.  BZ 69126.  [Yann Ylavic]
+     configured addressTTL.  PR 69126.  [Yann Ylavic]
 
   *) core: On Linux, log the real thread ID in error logs.  [Joe Orton]
 
@@ -1293,7 +1442,7 @@ Changes with Apache 2.4.48
      [Yann Ylavic]
 
   *) mod_proxy: Fix flushing of THRESHOLD_MIN_WRITE data while tunneling.
-     BZ 65294.  [Yann Ylavic]
+     PR 65294.  [Yann Ylavic]
 
   *) core: Fix a regression that stripped the ETag header from 304 responses.
      PR 61820 [Ruediger Pluem, Roy T. Fielding]

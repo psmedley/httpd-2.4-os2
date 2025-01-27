@@ -27,6 +27,7 @@ FIND_PACKAGE(Lua51)
 FIND_PACKAGE(OpenSSL)
 FIND_PACKAGE(ZLIB)
 FIND_PACKAGE(CURL)
+FIND_PACKAGE(PCRE2 COMPONENTS 8BIT)
 
 # Options for support libraries not supported by cmake-bundled FindFOO
 
@@ -47,7 +48,10 @@ ENDIF()
 # PCRE names its libraries differently for debug vs. release builds.
 # We can't query our own CMAKE_BUILD_TYPE at configure time.
 # If the debug version exists in PREFIX/lib, default to that one.
-IF(EXISTS "${CMAKE_INSTALL_PREFIX}/lib/pcre2-8d.lib")
+IF(PCRE2_FOUND)
+  SET(default_pcre_libraries "PCRE2::8BIT")
+  SET(default_pcre_cflags "-DHAVE_PCRE2")
+ELSEIF(EXISTS "${CMAKE_INSTALL_PREFIX}/lib/pcre2-8d.lib")
   SET(default_pcre_libraries ${CMAKE_INSTALL_PREFIX}/lib/pcre2-8d.lib)
   SET(default_pcre_cflags "-DHAVE_PCRE2")
 ELSEIF(EXISTS "${CMAKE_INSTALL_PREFIX}/lib/pcre2-8.lib")
@@ -628,11 +632,10 @@ ENDIF()
 CONFIGURE_FILE(os/win32/BaseAddr.ref ${PROJECT_BINARY_DIR}/ COPYONLY)
 
 ADD_EXECUTABLE(gen_test_char server/gen_test_char.c)
-GET_TARGET_PROPERTY(GEN_TEST_CHAR_EXE gen_test_char LOCATION)
 ADD_CUSTOM_COMMAND(
   COMMENT "Generating character tables, test_char.h, for current locale"
   DEPENDS gen_test_char
-  COMMAND ${GEN_TEST_CHAR_EXE} > ${PROJECT_BINARY_DIR}/test_char.h
+  COMMAND $<TARGET_FILE:gen_test_char> > ${PROJECT_BINARY_DIR}/test_char.h
   OUTPUT ${PROJECT_BINARY_DIR}/test_char.h
 )
 ADD_CUSTOM_TARGET(

@@ -46,3 +46,39 @@ class TestSetupErrors:
         md = env.await_error(domain, errors=2, timeout=10)
         assert md
         assert md['renewal']['errors'] > 0
+        #
+        env.httpd_error_log.ignore_recent(
+            lognos = [
+                "AH10056"   # CA considers answer to challenge invalid
+            ],
+            matches = [
+                r'.*The key authorization file from the server did not match this challenge.*',
+                r'.*CA considers answer to challenge invalid.*'
+            ]
+        )
+
+    # mess up the produced staging area before reload
+    def test_md_741_002(self, env):
+        domain = self.test_domain
+        domains = [domain]
+        conf = MDConf(env)
+        conf.add_md(domains)
+        conf.add_vhost(domains)
+        conf.install()
+        assert env.apache_restart() == 0
+        env.check_md(domains)
+        assert env.await_completion([domain], restart=False)
+        staged_md_path = env.store_staged_file(domain, 'md.json')
+        with open(staged_md_path, 'w') as fd:
+            fd.write('garbage\n')
+        assert env.apache_restart() == 0
+        assert env.await_completion([domain])
+        env.check_md_complete(domain)
+        env.httpd_error_log.ignore_recent(
+            lognos = [
+                "AH10069"   # failed to load JSON file
+            ],
+            matches = [
+                r'.*failed to load JSON file.*',
+            ]
+        )
