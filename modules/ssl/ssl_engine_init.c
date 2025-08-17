@@ -427,7 +427,7 @@ apr_status_t ssl_init_Module(apr_pool_t *p, apr_pool_t *plog,
                                                     &ssl_module);
 
         sc = mySrvConfig(s);
-        if (sc->enabled == SSL_ENABLED_TRUE || sc->enabled == SSL_ENABLED_OPTIONAL) {
+        if (sc->enabled == SSL_ENABLED_TRUE) {
             if ((rv = ssl_run_init_server(s, p, 0, sc->server->ssl_ctx)) != APR_SUCCESS) {
                 return rv;
             }
@@ -618,7 +618,12 @@ static apr_status_t ssl_init_ctx_protocol(server_rec *s,
     int protocol = mctx->protocol;
     SSLSrvConfigRec *sc = mySrvConfig(s);
 #if OPENSSL_VERSION_NUMBER >= 0x10100000L
-    int prot;
+    /* default is highest supported version, will be overridden below */
+#if SSL_HAVE_PROTOCOL_TLSV1_3
+    int prot = TLS1_3_VERSION;
+#else
+    int prot = TLS1_2_VERSION;
+#endif
 #endif
 
     /*
@@ -2121,9 +2126,9 @@ apr_status_t ssl_init_ConfigureServer(server_rec *s,
                                                 &ssl_module);
     apr_status_t rv;
 
-    /* Initialize the server if SSL is enabled or optional.
+    /* Initialize the server if SSL is enabled.
      */
-    if ((sc->enabled == SSL_ENABLED_TRUE) || (sc->enabled == SSL_ENABLED_OPTIONAL)) {
+    if (sc->enabled == SSL_ENABLED_TRUE) {
         ap_log_error(APLOG_MARK, APLOG_INFO, 0, s, APLOGNO(01914)
                      "Configuring server %s for SSL protocol", sc->vhost_id);
         if ((rv = ssl_init_server_ctx(s, p, ptemp, sc, pphrases))

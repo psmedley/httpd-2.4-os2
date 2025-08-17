@@ -290,8 +290,16 @@ void free_bio_methods(void);
 #define X509_get_notAfter   X509_getm_notAfter
 #endif
 
-#if OPENSSL_VERSION_NUMBER >= 0x10101000L && !defined(LIBRESSL_VERSION_NUMBER)
-#define HAVE_OPENSSL_KEYLOG
+/* The SSL_CTX_set_keylog_callback() API is present in 1.1.1+.
+ * 
+ * OpenSSL 3.5+ also provides optional native handling of
+ * $SSLKEYLOGFILE inside libssl, which duplicates the mod_ssl support.
+ * The mod_ssl support is hence disabled for 3.5+, unless that OpenSSL
+ * feature is itself disabled (and OPENSSL_NO_SSLKEYLOG is defined).
+ */
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L && !defined(LIBRESSL_VERSION_NUMBER) \
+    && (OPENSSL_VERSION_NUMBER <= 0x30500000L || defined(OPENSSL_NO_SSLKEYLOG))
+#define HAVE_OPENSSL_KEYLOG 
 #endif
 
 #ifdef HAVE_FIPS
@@ -518,7 +526,6 @@ typedef enum {
     SSL_ENABLED_UNSET    = UNSET,
     SSL_ENABLED_FALSE    = 0,
     SSL_ENABLED_TRUE     = 1,
-    SSL_ENABLED_OPTIONAL = 3
 } ssl_enabled_t;
 
 /**

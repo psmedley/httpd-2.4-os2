@@ -199,6 +199,9 @@
 /* Define to 1 if you have the 'RAND_egd' function. */
 #undef HAVE_RAND_EGD
 
+/* Defined if SELinux is supported */
+#undef HAVE_SELINUX
+
 /* Define to 1 if you have the 'setsid' function. */
 #undef HAVE_SETSID
 

@@ -109,13 +109,29 @@ static void cleanup_unprocessed_streams(h2_session *session)
     h2_mplx_c1_streams_do(session->mplx, rst_unprocessed_stream, session);
 }
 
+/* APR callback invoked if allocation fails. */
+static int abort_on_oom(int retcode)
+{
+    ap_abort_on_oom();
+    return retcode; /* unreachable, hopefully. */
+}
+
 static h2_stream *h2_session_open_stream(h2_session *session, int stream_id,
                                          int initiated_on)
 {
     h2_stream * stream;
+    apr_allocator_t *allocator;
     apr_pool_t *stream_pool;
+    apr_status_t rv;
     
-    apr_pool_create(&stream_pool, session->pool);
+    rv = apr_allocator_create(&allocator);
+    if (rv != APR_SUCCESS)
+      return NULL;
+
+    apr_allocator_max_free_set(allocator, ap_max_mem_free);
+    apr_pool_create_ex(&stream_pool, session->pool, NULL, allocator);
+    apr_allocator_owner_set(allocator, stream_pool);
+    apr_pool_abort_set(abort_on_oom, stream_pool);
     apr_pool_tag(stream_pool, "h2_stream");
     
     stream = h2_stream_create(stream_id, stream_pool, session, 
@@ -624,6 +640,29 @@ static int on_frame_send_cb(nghttp2_session *ngh2,
     return 0;
 }
 
+static int on_frame_not_send_cb(nghttp2_session *ngh2,
+                            const nghttp2_frame *frame,
+                            int ngh2_err,
+                            void *user_data)
+{
+    h2_session *session = user_data;
+    int stream_id = frame->hd.stream_id;
+    h2_stream *stream;
+    char buffer[256];
+
+    stream = get_stream(session, stream_id);
+    h2_util_frame_print(frame, buffer, sizeof(buffer)/sizeof(buffer[0]));
+    ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, session->c1,
+                  H2_SSSN_LOG(APLOGNO(10509), session,
+                  "not sent FRAME[%s], error %d: %s"),
+                  buffer, ngh2_err, nghttp2_strerror(ngh2_err));
+    if(stream) {
+        h2_stream_rst(stream, NGHTTP2_PROTOCOL_ERROR);
+        return 0;
+    }
+    return NGHTTP2_ERR_CALLBACK_FAILURE;
+}
+
 #ifdef H2_NG2_INVALID_HEADER_CB
 static int on_invalid_header_cb(nghttp2_session *ngh2,
                                 const nghttp2_frame *frame, 
@@ -699,6 +738,7 @@ static apr_status_t init_callbacks(conn_rec *c, nghttp2_session_callbacks **pcb)
     NGH2_SET_CALLBACK(*pcb, on_header, on_header_cb);
     NGH2_SET_CALLBACK(*pcb, send_data, on_send_data_cb);
     NGH2_SET_CALLBACK(*pcb, on_frame_send, on_frame_send_cb);
+    NGH2_SET_CALLBACK(*pcb, on_frame_not_send, on_frame_not_send_cb);
 #ifdef H2_NG2_INVALID_HEADER_CB
     NGH2_SET_CALLBACK(*pcb, on_invalid_header, on_invalid_header_cb);
 #endif
@@ -948,6 +988,14 @@ apr_status_t h2_session_create(h2_session **psession, conn_rec *c, request_rec *
     }
 
     h2_c1_io_init(&session->io, session);
+    /* setup request header scratch buffers */
+    session->hd_scratch.max_len = session->s->limit_req_fieldsize?
+        session->s->limit_req_fieldsize : 8190;
+    session->hd_scratch.name =
+        apr_pcalloc(session->pool, session->hd_scratch.max_len + 1);
+    session->hd_scratch.value =
+        apr_pcalloc(session->pool, session->hd_scratch.max_len + 1);
+
     session->padding_max = h2_config_sgeti(s, H2_CONF_PADDING_BITS);
     if (session->padding_max) {
         session->padding_max = (0x01 << session->padding_max) - 1; 
@@ -988,6 +1036,11 @@ apr_status_t h2_session_create(h2_session **psession, conn_rec *c, request_rec *
      * handle them, just like the HTTP/1.1 parser does. */
     nghttp2_option_set_no_rfc9113_leading_and_trailing_ws_validation(options, 1);
 #endif
+
+    if(h2_config_sgeti(s, H2_CONF_MAX_HEADER_BLOCK_LEN) > 0)
+        nghttp2_option_set_max_send_header_block_length(options,
+            h2_config_sgeti(s, H2_CONF_MAX_HEADER_BLOCK_LEN));
+
     rv = nghttp2_session_server_new2(&session->ngh2, callbacks,
                                      session, options);
     nghttp2_session_callbacks_del(callbacks);
@@ -1003,7 +1056,7 @@ apr_status_t h2_session_create(h2_session **psession, conn_rec *c, request_rec *
     
     n = h2_config_sgeti(s, H2_CONF_PUSH_DIARY_SIZE);
     session->push_diary = h2_push_diary_create(session->pool, n);
-    
+
     if (APLOGcdebug(c)) {
         ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, c, 
                       H2_SSSN_LOG(APLOGNO(03200), session, 
@@ -1125,13 +1178,13 @@ static apr_status_t h2_session_start(h2_session *session, int *rv)
          * interim updates, any smaller connection window will lead to blocking
          * in DATA flow.
          */
-        *rv = nghttp2_submit_window_update(session->ngh2, NGHTTP2_FLAG_NONE,
-                                           0, NGHTTP2_MAX_WINDOW_SIZE - win_size);
+        *rv = nghttp2_session_set_local_window_size(
+            session->ngh2, NGHTTP2_FLAG_NONE, 0, NGHTTP2_MAX_WINDOW_SIZE);
         if (*rv != 0) {
             status = APR_EGENERAL;
             ap_log_cerror(APLOG_MARK, APLOG_ERR, status, session->c1,
                           H2_SSSN_LOG(APLOGNO(02970), session,
-                          "nghttp2_submit_window_update: %s"), 
+                          "nghttp2_session_set_local_window_size: %s"),
                           nghttp2_strerror(*rv));        
         }
     }
@@ -1670,9 +1723,10 @@ static void on_stream_state_enter(void *ctx, h2_stream *stream)
             break;
         case H2_SS_CLEANUP:
             nghttp2_session_set_stream_user_data(session->ngh2, stream->id, NULL);
-            h2_mplx_c1_stream_cleanup(session->mplx, stream, &session->open_streams);
-            ++session->streams_done;
             update_child_status(session, SERVER_BUSY_WRITE, "done", stream);
+            h2_mplx_c1_stream_cleanup(session->mplx, stream, &session->open_streams);
+            stream = NULL;
+            ++session->streams_done;
             break;
         default:
             break;
