@@ -370,6 +370,13 @@ static apr_status_t h2_c2_filter_out(ap_filter_t* f, apr_bucket_brigade* bb)
     h2_conn_ctx_t *conn_ctx = h2_conn_ctx_get(f->c);
     apr_status_t rv;
 
+    if (bb == NULL) {
+#if !AP_MODULE_MAGIC_AT_LEAST(20180720, 1)
+        f->c->data_in_output_filters = 0;
+#endif
+        return APR_SUCCESS;
+    }
+
    if (bb == NULL) {
 #if !AP_MODULE_MAGIC_AT_LEAST(20180720, 1)
         f->c->data_in_output_filters = 0;
@@ -388,7 +395,7 @@ static apr_status_t h2_c2_filter_out(ap_filter_t* f, apr_bucket_brigade* bb)
         {
             if (AP_BUCKET_IS_RESPONSE(e)) {
                 ap_bucket_response *resp = e->data;
-                if (resp->status >= 200) {
+                if (resp->status >= HTTP_OK) {
                     conn_ctx->has_final_response = 1;
                     break;
                 }
@@ -454,7 +461,7 @@ static void check_early_hints(request_rec *r, const char *tag)
           }
           old_status = r->status;
           old_line = r->status_line;
-          r->status = 103;
+          r->status = HTTP_EARLY_HINTS;
           r->status_line = "103 Early Hints";
           ap_send_interim_response(r, 1);
           r->status = old_status;

@@ -75,7 +75,8 @@ static const char * const status_lines[RESPONSE_CODES] =
     "100 Continue",
     "101 Switching Protocols",
     "102 Processing",
-#define LEVEL_200  3
+    "103 Early Hints",
+#define LEVEL_200  4
     "200 OK",
     "201 Created",
     "202 Accepted",
@@ -103,7 +104,7 @@ static const char * const status_lines[RESPONSE_CODES] =
     NULL, /* 224 */
     NULL, /* 225 */
     "226 IM Used",
-#define LEVEL_300 30
+#define LEVEL_300 31
     "300 Multiple Choices",
     "301 Moved Permanently",
     "302 Found",
@@ -113,7 +114,7 @@ static const char * const status_lines[RESPONSE_CODES] =
     NULL, /* 306 */
     "307 Temporary Redirect",
     "308 Permanent Redirect",
-#define LEVEL_400 39
+#define LEVEL_400 40
     "400 Bad Request",
     "401 Unauthorized",
     "402 Payment Required",
@@ -166,7 +167,7 @@ static const char * const status_lines[RESPONSE_CODES] =
     NULL, /* 449 */
     NULL, /* 450 */
     "451 Unavailable For Legal Reasons",
-#define LEVEL_500 91
+#define LEVEL_500 92
     "500 Internal Server Error",
     "501 Not Implemented",
     "502 Bad Gateway",
@@ -1520,7 +1521,7 @@ AP_DECLARE(void) ap_send_error_response(request_rec *r, int recursive_error)
          */
 
         ap_rvputs_proto_in_ascii(r,
-                  DOCTYPE_HTML_2_0
+                  DOCTYPE_HTML_4_01
                   "<html><head>\n<title>", title,
                   "</title>\n</head><body>\n<h1>", h1, "</h1>\n",
                   NULL);

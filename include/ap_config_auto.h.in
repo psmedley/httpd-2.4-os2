@@ -190,6 +190,9 @@
 /* Define to 1 if you have the <priv.h> header file. */
 #undef HAVE_PRIV_H
 
+/* Define to 1 if you have the 'procctl' function. */
+#undef HAVE_PROCCTL
+
 /* Define to 1 if you have the 'pthread_kill' function. */
 #undef HAVE_PTHREAD_KILL
 
@@ -243,6 +246,9 @@
 
 /* Define to 1 if you have the <sys/prctl.h> header file. */
 #undef HAVE_SYS_PRCTL_H
+
+/* Define to 1 if you have the <sys/procctl.h> header file. */
+#undef HAVE_SYS_PROCCTL_H
 
 /* Define to 1 if you have the <sys/processor.h> header file. */
 #undef HAVE_SYS_PROCESSOR_H
@@ -327,6 +333,10 @@
 /* Enable extensions on AIX, Interix, z/OS.  */
 #ifndef _ALL_SOURCE
 # undef _ALL_SOURCE
+#endif
+/* Enable extensions on Cosmopolitan Libc. */
+#ifndef _COSMO_SOURCE
+# undef _COSMO_SOURCE
 #endif
 /* Enable general extensions on macOS.  */
 #ifndef _DARWIN_C_SOURCE

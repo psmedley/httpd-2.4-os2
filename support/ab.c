@@ -675,7 +675,7 @@ static int ssl_print_connection_info(BIO *bio, SSL *ssl)
 
 static void ssl_print_cert_info(BIO *bio, X509 *cert)
 {
-    X509_NAME *dn;
+    const X509_NAME *dn;
     EVP_PKEY *pk;
     char buf[1024];
 
@@ -2143,14 +2143,14 @@ static void test(void)
 static void copyright(void)
 {
     if (!use_html) {
-        printf("This is ApacheBench, Version %s\n", AP_AB_BASEREVISION " <$Revision: 1923142 $>");
+        printf("This is ApacheBench, Version %s\n", AP_AB_BASEREVISION " <$Revision: 1934973 $>");
         printf("Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/\n");
         printf("Licensed to The Apache Software Foundation, http://www.apache.org/\n");
         printf("\n");
     }
     else {
         printf("<p>\n");
-        printf(" This is ApacheBench, Version %s <i>&lt;%s&gt;</i><br>\n", AP_AB_BASEREVISION, "$Revision: 1923142 $");
+        printf(" This is ApacheBench, Version %s <i>&lt;%s&gt;</i><br>\n", AP_AB_BASEREVISION, "$Revision: 1934973 $");
         printf(" Copyright 1996 Adam Twiss, Zeus Technology Ltd, http://www.zeustech.net/<br>\n");
         printf(" Licensed to The Apache Software Foundation, http://www.apache.org/<br>\n");
         printf("</p>\n<p>\n");
@@ -2276,7 +2276,7 @@ static int parse_url(const char *url)
     }
 #endif
 
-    if ((cp = strchr(url, '/')) == NULL)
+    if ((cp = strchr((char *)url, '/')) == NULL)
         return 1;
     h = apr_pstrmemdup(cntxt, url, cp - url);
     rv = apr_parse_addr_port(&hostname, &scope_id, &port, h, cntxt);
@@ -2557,7 +2557,7 @@ int main(int argc, const char * const argv[])
                     /*
                      * assume proxy-name[:port]
                      */
-                    if ((p = strchr(opt_arg, ':'))) {
+                    if ((p = strchr((char *)opt_arg, ':'))) {
                         *p = '\0';
                         p++;
                         proxyport = atoi(p);

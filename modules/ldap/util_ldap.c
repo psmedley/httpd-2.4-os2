@@ -176,7 +176,7 @@ static int util_ldap_handler(request_rec *r)
     if (r->header_only)
         return OK;
 
-    ap_rputs(DOCTYPE_HTML_3_2
+    ap_rputs(DOCTYPE_HTML_4_01
              "<html><head><title>LDAP Cache Information</title></head>\n", r);
     ap_rputs("<body bgcolor='#ffffff'><h1 align=center>LDAP Cache Information"
              "</h1>\n", r);
@@ -897,8 +897,23 @@ static util_ldap_connection_t *
          */
         l->secure = secureflag;
 
-        /* save away a copy of the client cert list that is presently valid */
-        l->client_certs = apr_array_copy_hdr(l->pool, dc->client_certs);
+        /* Deep-copy the client cert list into the connection pool so that
+         * the cached connection does not retain pointers into the
+         * (potentially short-lived) per-directory config pool.
+         */
+        l->client_certs = apr_array_copy(l->pool, dc->client_certs);
+        if (!apr_is_empty_array(l->client_certs)) {
+            int i;
+            apr_ldap_opt_tls_cert_t *certs;
+
+            certs = (apr_ldap_opt_tls_cert_t *)l->client_certs->elts;
+            for (i = 0; i < l->client_certs->nelts; i++) {
+                if (certs[i].path)
+                    certs[i].path = apr_pstrdup(l->pool, certs[i].path);
+                if (certs[i].password)
+                    certs[i].password = apr_pstrdup(l->pool, certs[i].password);
+            }
+        }
 
         /* whether or not to keep this connection in the pool when it's returned */
         l->keep = (st->connection_pool_ttl == 0) ? 0 : 1;

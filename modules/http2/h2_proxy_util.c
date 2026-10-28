@@ -34,7 +34,7 @@
 APLOG_USE_MODULE(proxy_http2);
 
 /* h2_log2(n) iff n is a power of 2 */
-unsigned char h2_proxy_log2(int n)
+unsigned char h2_proxy_log2(unsigned int n)
 {
     int lz = 0;
     if (!n) {
@@ -381,7 +381,7 @@ static int iq_bubble_down(h2_proxy_iqueue *q, int i, int bottom,
  * h2_proxy_ngheader
  ******************************************************************************/
 #define H2_HD_MATCH_LIT_CS(l, name)  \
-    ((strlen(name) == sizeof(l) - 1) && !apr_strnatcasecmp(l, name))
+    ((strlen(name) == sizeof(l) - 1) && !ap_cstr_casecmp(l, name))
 
 static int h2_util_ignore_header(const char *name) 
 {
@@ -500,7 +500,7 @@ static int ignore_header(const literal *lits, size_t llen,
     
     for (i = 0; i < llen; ++i) {
         lit = &lits[i];
-        if (lit->len == nlen && !apr_strnatcasecmp(lit->name, name)) {
+        if (lit->len == nlen && !ap_cstr_casecmp(lit->name, name)) {
             return 1;
         }
     }
@@ -542,7 +542,7 @@ void h2_proxy_util_camel_case_header(char *s, size_t len)
 
 /** Match a header value against a string constance, case insensitive */
 #define H2_HD_MATCH_LIT(l, name, nlen)  \
-    ((nlen == sizeof(l) - 1) && !apr_strnatcasecmp(l, name))
+    ((nlen == sizeof(l) - 1) && !ap_cstr_casecmp(l, name))
 
 static apr_status_t h2_headers_add_h1(apr_table_t *headers, apr_pool_t *pool, 
                                       const char *name, size_t nlen,
@@ -966,11 +966,8 @@ static void map_link(link_ctx *ctx)
             apr_cpystrn(buffer, ctx->p_server_uri, sizeof(buffer));
             buffer_len = ctx->psu_len;
         }
-        if (need_len > sizeof(buffer)) {
-            ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, ctx->r, APLOGNO(03482) 
-                          "link_reverse_map uri too long, skipped: %s", ctx->s);
-            return;
-        }
+        if (need_len > sizeof(buffer))
+            goto out;
         apr_cpystrn(buffer + buffer_len, ctx->s + ctx->link_start, link_len + 1);
         if (!prepend_p_server
             && strcmp(ctx->real_backend_uri, ctx->p_server_uri)
@@ -979,6 +976,9 @@ static void map_link(link_ctx *ctx)
              * to work, we need to use the proxy uri */
             int path_start = ctx->link_start + ctx->rbu_len;
             link_len -= ctx->rbu_len;
+            need_len = ctx->psu_len + link_len + 1;
+            if (need_len > sizeof(buffer))
+                goto out;
             memcpy(buffer, ctx->p_server_uri, ctx->psu_len);
             memcpy(buffer + ctx->psu_len, ctx->s + path_start, link_len);
             buffer_len = ctx->psu_len + link_len;
@@ -998,6 +998,11 @@ static void map_link(link_ctx *ctx)
                 }
             }
             subst_str(ctx, ctx->link_start, ctx->link_end, mapped);
+        }
+out:
+        if (need_len > sizeof(buffer)) {
+            ap_log_rerror(APLOG_MARK, APLOG_WARNING, 0, ctx->r, APLOGNO(03482)
+                          "link_reverse_map uri too long, skipped: %s", ctx->s);
         }
     }
 }

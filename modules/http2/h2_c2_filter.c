@@ -62,7 +62,7 @@ apr_status_t h2_c2_filter_notes_out(ap_filter_t *f, apr_bucket_brigade *bb)
     {
         if (AP_BUCKET_IS_RESPONSE(b)) {
             resp = b->data;
-            if (resp->status >= 400 && f->r->prev) {
+            if (resp->status >= HTTP_BAD_REQUEST && f->r->prev) {
                 /* Error responses are commonly handled via internal
                  * redirects to error documents. That creates a new
                  * request_rec with 'prev' set to the original.
@@ -204,7 +204,7 @@ static int uniq_field_values(void *d, const char *key, const char *val)
          */
         for (i = 0, strpp = (char **) values->elts; i < values->nelts;
              ++i, ++strpp) {
-            if (*strpp && apr_strnatcasecmp(*strpp, start) == 0) {
+            if (*strpp && ap_cstr_casecmp(*strpp, start) == 0) {
                 break;
             }
         }
@@ -307,12 +307,12 @@ static h2_headers *create_response(request_rec *r)
     if (!apr_is_empty_array(r->content_languages)) {
         int i;
         char *token;
-        char **languages = (char **)(r->content_languages->elts);
         const char *field = apr_table_get(r->headers_out, "Content-Language");
 
         while (field && (token = ap_get_list_item(r->pool, &field)) != NULL) {
+            char **languages = (char **)(r->content_languages->elts);
             for (i = 0; i < r->content_languages->nelts; ++i) {
-                if (!apr_strnatcasecmp(token, languages[i]))
+                if (!ap_cstr_casecmp(token, languages[i]))
                     break;
             }
             if (i == r->content_languages->nelts) {
@@ -547,7 +547,7 @@ static apr_status_t pass_response(h2_conn_ctx_t *conn_ctx, ap_filter_t *f,
     parser->state = H2_RP_STATUS_LINE;
     apr_array_clear(parser->hlines);
 
-    if (response->status >= 200) {
+    if (response->status >= HTTP_OK) {
         conn_ctx->has_final_response = 1;
     }
     ap_log_cerror(APLOG_MARK, APLOG_DEBUG, 0, parser->c,
@@ -657,7 +657,7 @@ apr_status_t h2_c2_filter_catch_h1_out(ap_filter_t* f, apr_bucket_brigade* bb)
                                                        HTTP_INTERNAL_SERVER_ERROR);
                 request_rec *r = h2_create_request_rec(conn_ctx->request, f->c, 1);
                 if (r) {
-                    ap_die((result >= 400)? result : HTTP_INTERNAL_SERVER_ERROR, r);
+                    ap_die((result >= HTTP_BAD_REQUEST)? result : HTTP_INTERNAL_SERVER_ERROR, r);
                     b = ap_bucket_eor_create(f->c->bucket_alloc, r);
                     APR_BRIGADE_INSERT_TAIL(bb, b);
                 }

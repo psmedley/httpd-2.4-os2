@@ -559,9 +559,15 @@ static apr_status_t stream_pool_destroy(void *data)
     h2_stream *stream = data;
     switch (stream->magic) {
     case H2_STRM_MAGIC_OK:
-        ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, stream->session->c1,
-                      H2_STRM_MSG(stream, "was not destroyed explicitly"));
-        AP_DEBUG_ASSERT(0);
+        /* Reclaimed with the session pool rather than destroyed
+         * explicitly.  This is expected for a stream which was created
+         * but never scheduled for processing - e.g. one whose request
+         * nghttp2 rejects before it is handed to the mplx - and is
+         * harmless, since nothing but the session pool ever owned it.
+         * Use-after-free of a stream is still caught in any build by the
+         * H2_STRM_ASSERT_MAGIC at each use. */
+        ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, stream->session->c1,
+                      H2_STRM_MSG(stream, "reclaimed, never processed"));
         break;
     case H2_STRM_MAGIC_SDEL:
         /* stream has been explicitly destroyed, as it should */
@@ -1022,10 +1028,10 @@ static void stream_do_error_bucket(h2_stream *stream, apr_bucket *b)
     int err = ((ap_bucket_error *)(b->data))->status;
     ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, stream->session->c1,
                   H2_STRM_MSG(stream, "error bucket received, err=%d"), err);
-    if (err >= 500) {
+    if (err >= HTTP_INTERNAL_SERVER_ERROR) {
         err = NGHTTP2_INTERNAL_ERROR;
     }
-    else if (err >= 400) {
+    else if (err >= HTTP_BAD_REQUEST) {
         err = NGHTTP2_STREAM_CLOSED;
     }
     else {
@@ -1510,7 +1516,8 @@ static ssize_t stream_data_cb(nghttp2_session *ng2s,
             buf_len = output_data_buffered(stream, &eos, &header_blocked);
         }
         else if (APR_EOF == rv) {
-            if (!stream->output_eos) {
+            if (!stream->output_eos &&
+                !AP_STATUS_IS_HEADER_ONLY(stream->response->status)) {
                 /* Seeing APR_EOF without an EOS bucket received before indicates
                  * that stream output is incomplete. Commonly, we expect to see
                  * an ERROR bucket to have been generated. But faulty handlers
@@ -1618,8 +1625,9 @@ static apr_status_t stream_do_response(h2_stream *stream)
                 ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c1,
                               H2_STRM_MSG(stream, "process response %d"),
                               resp->status);
-                is_empty = (e != APR_BRIGADE_SENTINEL(stream->out_buffer)
-                            && APR_BUCKET_IS_EOS(e));
+                is_empty = AP_STATUS_IS_HEADER_ONLY(resp->status) ||
+                           ((e != APR_BRIGADE_SENTINEL(stream->out_buffer) &&
+                            APR_BUCKET_IS_EOS(e)));
                 break;
             }
             else if (APR_BUCKET_IS_EOS(b)) {
@@ -1647,7 +1655,7 @@ static apr_status_t stream_do_response(h2_stream *stream)
         goto cleanup;
     }
 
-    if (resp->status < 100) {
+    if (resp->status < HTTP_CONTINUE) {
         h2_stream_rst(stream, resp->status);
         goto cleanup;
     }
@@ -1689,8 +1697,8 @@ static apr_status_t stream_do_response(h2_stream *stream)
         && !stream->response
         && stream->request && stream->request->method
         && !strcmp("GET", stream->request->method)
-        && (resp->status < 400)
-        && (resp->status != 304)
+        && (resp->status < HTTP_BAD_REQUEST)
+        && (resp->status != HTTP_NOT_MODIFIED)
         && h2_session_push_enabled(stream->session)) {
         /* PUSH is possible and enabled on server, unless the request
          * denies it, submit resources to push */
@@ -1707,14 +1715,14 @@ static apr_status_t stream_do_response(h2_stream *stream)
     }
     h2_session_set_prio(stream->session, stream, stream->pref_priority);
 
-    if (resp->status == 103
+    if (resp->status == HTTP_EARLY_HINTS
         && !h2_config_sgeti(stream->session->s, H2_CONF_EARLY_HINTS)) {
         /* suppress sending this to the client, it might have triggered
          * pushes and served its purpose nevertheless */
         rv = APR_SUCCESS;
         goto cleanup;
     }
-    if (resp->status >= 200) {
+    if (resp->status >= HTTP_OK) {
         stream->response = resp;
     }
 

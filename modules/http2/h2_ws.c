@@ -239,7 +239,7 @@ static void ws_handle_resp(conn_rec *c2, h2_conn_ctx_t *conn_ctx,
                  * or in the request processings implementation of WebSockets */
                 ap_log_cerror(APLOG_MARK, APLOG_ERR, 0, c2, APLOGNO(10463)
                               "h2_c2(%s-%d): websocket CONNECT, 101 response "
-                              "with 'Sec-WebSocket-Accept: %s' but expected %s",
+                              "without 'Sec-WebSocket-Accept: %s' but expected %s",
                               conn_ctx->id, conn_ctx->stream_id, hd,
                               ws_ctx->ws_accept_base64);
             }
@@ -247,10 +247,10 @@ static void ws_handle_resp(conn_rec *c2, h2_conn_ctx_t *conn_ctx,
             override_body = is_final = 1;
         }
     }
-    else if (resp->status < 200) {
+    else if (resp->status < HTTP_OK) {
         /* other intermediate response, pass through */
     }
-    else if (resp->status < 300) {
+    else if (resp->status < HTTP_MULTIPLE_CHOICES) {
         /* Failure, we might be talking to a plain http resource */
         ap_log_cerror(APLOG_MARK, APLOG_TRACE1, 0, c2,
                       "h2_c2(%s-%d): websocket CONNECT, invalid response %d",

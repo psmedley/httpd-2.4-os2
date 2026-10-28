@@ -1456,6 +1456,7 @@ static void balancer_display_page(request_rec *r, proxy_server_conf *conf,
             ap_rputs("    <httpd:balancer>\n", r);
             /* Start proxy_balancer */
             ap_rvputs(r, "      <httpd:name>", balancer->s->name, "</httpd:name>\n", NULL);
+            ap_rvputs(r, "      <httpd:nonce>", balancer->s->nonce, "</httpd:nonce>\n", NULL);
             if (*balancer->s->sticky) {
                 ap_rvputs(r, "      <httpd:stickysession>", ap_escape_html(r->pool, balancer->s->sticky),
                           "</httpd:stickysession>\n", NULL);
@@ -1620,7 +1621,7 @@ static void balancer_display_page(request_rec *r, proxy_server_conf *conf,
     }
     else {
         ap_set_content_type(r, "text/html; charset=ISO-8859-1");
-        ap_rputs(DOCTYPE_HTML_3_2
+        ap_rputs(DOCTYPE_HTML_4_01
                  "<html><head><title>Balancer Manager</title>\n", r);
         ap_rputs("<style type='text/css'>\n"
                  "table {\n"
