@@ -60,16 +60,7 @@
 #include <os2.h>
 #include <process.h>
 
-/* We don't need many processes,
- * they're only for redundancy in the event of a crash
- */
-#define HARD_SERVER_LIMIT 10
-
-/* Limit on the total number of threads per process
- */
-#ifndef HARD_THREAD_LIMIT
-#define HARD_THREAD_LIMIT 256
-#endif
+/* HARD_SERVER_LIMIT and HARD_THREAD_LIMIT come from mpm_default.h */
 
 //server_rec *ap_server_conf; // GCC 10+ don't like this
 static apr_pool_t *pconf = NULL;  /* Pool for config stuff */
@@ -80,7 +71,6 @@ static int ap_daemons_to_start = 0;
 int ap_thread_limit = 0;                        // 2022-05-07 SHL make global for mpmt_os2_child
 int ap_min_spare_threads = 0;
 int ap_max_spare_threads = 0;
-int ap_thread_stack_size = 128 * 1024;
 
 /* Keep track of a few interesting statistics */
 int ap_max_daemons_limit = 0;
@@ -130,12 +120,19 @@ static int mpmt_os2_run(apr_pool_t *_pconf, apr_pool_t *plog, server_rec *s )
     TID   tidSemaphoreOwner = 0;         /* will get TID of sem owner */
     ULONG ulRequestCount;      /* will get the request count for the sem */
 
-    rc = DosSetRelMaxFH(&ReqCount,     /* Using 0 here will return the       */
-                        &CurMaxFH);    /* current number of file handles     */
+    static LONG fh_added = 0;            /* Total added by earlier generations */
 
-    ReqCount = ap_thread_limit * 2;
+    /* DosSetRelMaxFH is relative and this function runs again on every
+     * restart, so only add what has not already been added, otherwise the
+     * handle limit grows by ap_thread_limit * 2 on each restart.
+     */
+    ReqCount = (LONG)ap_thread_limit * 2 - fh_added;
 
-    rc = DosSetRelMaxFH(&ReqCount,&CurMaxFH);     /* Change handle maximum */
+    if (ReqCount > 0) {
+        rc = DosSetRelMaxFH(&ReqCount, &CurMaxFH);     /* Change handle maximum */
+        if (rc == NO_ERROR)
+            fh_added += ReqCount;
+    }
 
     listener_shm_name = apr_psprintf(pconf, "/sharemem/httpd/parent_info.%d", getppid());
     rc = DosGetNamedSharedMem((PPVOID)&parent_info, (PCSZ)listener_shm_name, PAG_READ);
@@ -347,7 +344,8 @@ static int master_main()
 
         if (rc == 0) {
             /* A child has terminated, remove its scoreboard entry & terminate if necessary */
-            for (slot=0; ap_scoreboard_image->parent[slot].pid != child_pid && slot < HARD_SERVER_LIMIT; slot++)
+            /* Check bound before indexing to avoid reading past the array */
+            for (slot=0; slot < HARD_SERVER_LIMIT && ap_scoreboard_image->parent[slot].pid != child_pid; slot++)
                 ;                       // Keep looking
 
             if (slot < HARD_SERVER_LIMIT) {
@@ -362,8 +360,11 @@ static int master_main()
                         break;
                 }
             }
-        } else if (rc == ERROR_CHILD_NOT_COMPLETE) {
-            /* No child exited, lets sleep for a while.... */
+        } else {
+            /* No child exited (ERROR_CHILD_NOT_COMPLETE) or no children at
+             * all (e.g. ERROR_WAIT_NO_CHILDREN after spawn failures), lets
+             * sleep for a while.... rather than spinning at 100% CPU
+             */
             apr_sleep(SCOREBOARD_MAINTENANCE_INTERVAL);
         }
     } // while
@@ -399,6 +400,11 @@ static void spawn_child(int slot)
     if (rc) {
         ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc), ap_server_conf, APLOGNO(00208)
                      "error spawning child, slot %d", slot);
+        /* proc_rc is not valid, do not record a garbage pid in the scoreboard
+         * or the slot would be considered in use forever
+         */
+        ap_scoreboard_image->parent[slot].pid = 0;
+        return;
     }
 
     if (slot + 1 > ap_max_daemons_limit) {
@@ -548,7 +554,7 @@ static int mpmt_os2_check_config(apr_pool_t *p, apr_pool_t *plog,
         startup = 1;
     }
 
-    if (ap_daemons_to_start < 0) {
+    if (ap_daemons_to_start < 1) {
         if (startup) {
             ap_log_error(APLOG_MARK, APLOG_WARNING | APLOG_STARTUP, 0, NULL, APLOGNO(00213)
                          "WARNING: StartServers of %d not allowed, "
@@ -573,6 +579,38 @@ static int mpmt_os2_check_config(apr_pool_t *p, apr_pool_t *plog,
                          ap_min_spare_threads);
         }
         ap_min_spare_threads = 1;
+    }
+
+    /* Values above the hard limit can never be reached, clamp them */
+    if (ap_daemons_to_start > HARD_SERVER_LIMIT) {
+        ap_log_error(APLOG_MARK, APLOG_WARNING | (startup ? APLOG_STARTUP : 0),
+                     0, startup ? NULL : s,
+                     "StartServers of %d exceeds compile time limit of %d, "
+                     "decreasing to %d", ap_daemons_to_start,
+                     HARD_SERVER_LIMIT, HARD_SERVER_LIMIT);
+        ap_daemons_to_start = HARD_SERVER_LIMIT;
+    }
+
+    if (ap_thread_limit < 1 || ap_thread_limit > HARD_THREAD_LIMIT) {
+        int new_limit = ap_thread_limit < 1 ? 1 : HARD_THREAD_LIMIT;
+        ap_log_error(APLOG_MARK, APLOG_WARNING | (startup ? APLOG_STARTUP : 0),
+                     0, startup ? NULL : s,
+                     "MaxThreads of %d not allowed, must be between 1 and %d, "
+                     "setting to %d", ap_thread_limit, HARD_THREAD_LIMIT,
+                     new_limit);
+        ap_thread_limit = new_limit;
+    }
+
+    /* MaxSpareThreads below MinSpareThreads makes the maintenance thread
+     * create and destroy a worker every cycle
+     */
+    if (ap_max_spare_threads < ap_min_spare_threads) {
+        ap_log_error(APLOG_MARK, APLOG_WARNING | (startup ? APLOG_STARTUP : 0),
+                     0, startup ? NULL : s,
+                     "MaxSpareThreads of %d is less than MinSpareThreads, "
+                     "increasing to %d", ap_max_spare_threads,
+                     ap_min_spare_threads);
+        ap_max_spare_threads = ap_min_spare_threads;
     }
 
     return OK;
@@ -654,24 +692,12 @@ static const char *ignore_cmd(cmd_parms *cmd, void *dummy, const char *arg)
     return NULL;
 }
 
-static const char *set_thread_stacksize(cmd_parms *cmd, void *dummy,
-                                        const char *arg)
-{
-    const char *err = ap_check_cmd_context(cmd, GLOBAL_ONLY);
-    if (err != NULL) {
-        return err;
-    }
-
-    ap_thread_stack_size = atoi(arg);
-    return NULL;
-}
-
-
-
 static const command_rec mpmt_os2_cmds[] = {
 LISTEN_COMMANDS,
-AP_INIT_TAKE1("ThreadStackSize", set_thread_stacksize, NULL, RSRC_CONF,
-              "Stack size each created thread will use."),
+/* ThreadStackSize is handled by core (ap_mpm_set_thread_stacksize) which
+ * sets ap_thread_stacksize as used by mpmt_os2_child.c add_worker().
+ * A private copy here shadowed the core directive and was never used.
+ */
 AP_INIT_TAKE1( "StartServers", set_daemons_to_start, NULL, RSRC_CONF,
   "Number of child processes launched at server startup" ),
 AP_INIT_TAKE1("MinSpareThreads", set_min_spare_threads, NULL, RSRC_CONF,

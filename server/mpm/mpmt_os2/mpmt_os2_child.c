@@ -41,18 +41,7 @@
 
 APLOG_USE_MODULE(mpm_mpmt_os2);
 
-/* XXXXXX move these to header file private to this MPM */
-
-/* We don't need many processes,
- * they're only for redundancy in the event of a crash
- */
-#define HARD_SERVER_LIMIT 10
-
-/* Limit on the total number of threads per process
- */
-#ifndef HARD_THREAD_LIMIT
-#define HARD_THREAD_LIMIT 254           // 2014-11-30 SHL avoid VIO per session thread limit
-#endif
+/* HARD_SERVER_LIMIT and HARD_THREAD_LIMIT come from mpm_default.h */
 
 #define ID_FROM_CHILD_THREAD(c, t)    ((c * HARD_THREAD_LIMIT) + t)
 
@@ -67,7 +56,7 @@ typedef struct {
 static apr_pool_t *pchild = NULL;
 static int child_slot;
 static int shutdown_pending = 0;
-extern int ap_my_generation;
+extern ap_generation_t volatile ap_my_generation; /* must match mpmt_os2.c */
 static int volatile is_graceful = 1;
 HEV shutdown_event; /* signaled when this child is shutting down */
 
@@ -118,6 +107,7 @@ void ap_mpm_child_main(apr_pool_t *pconf)
     HQUEUE workq;
     apr_pollset_t *pollset;
     int num_listeners;
+    int last_poll_idx = 0;              /* Must persist across loops for round robin */
     TID server_maint_tid;
     void *sb_mem;
 
@@ -163,7 +153,8 @@ void ap_mpm_child_main(apr_pool_t *pconf)
     }
 
     /* Find our pid in the scoreboard so we know what slot our parent allocated us */
-    for (child_slot = 0; ap_scoreboard_image->parent[child_slot].pid != my_pid && child_slot < HARD_SERVER_LIMIT; child_slot++);
+    /* Check bound before indexing to avoid reading past the array */
+    for (child_slot = 0; child_slot < HARD_SERVER_LIMIT && ap_scoreboard_image->parent[child_slot].pid != my_pid; child_slot++);
 
     if (child_slot == HARD_SERVER_LIMIT) {
         ap_log_error(APLOG_MARK, APLOG_ERR, 0, ap_server_conf, APLOGNO(00192)
@@ -189,6 +180,12 @@ void ap_mpm_child_main(apr_pool_t *pconf)
     /* 2023-02-28 SHL Increase from 32768 to 65536 */
     server_maint_tid = _beginthread(server_maintenance, NULL, 65536, NULL);
 
+    if (server_maint_tid == (TID)-1) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, errno, ap_server_conf,
+                     "unable to start maintenance thread, exiting");
+        clean_child_exit(APEXIT_CHILDFATAL);
+    }
+
     /* Set up poll */
     for (num_listeners = 0, lr = ap_listeners; lr; lr = lr->next) {
         num_listeners++;
@@ -210,7 +207,6 @@ void ap_mpm_child_main(apr_pool_t *pconf)
     do {
         apr_pool_t *pconn;
         worker_args_t *worker_args;
-        int last_poll_idx = 0;
         apr_pool_create(&pconn, pchild);
         apr_pool_tag(pconn, "transaction");
         worker_args = apr_palloc(pconn, sizeof(worker_args_t));
@@ -224,8 +220,28 @@ void ap_mpm_child_main(apr_pool_t *pconf)
 
             rc = DosRequestMutexSem(ap_mpm_accept_mutex, SEM_INDEFINITE_WAIT);
 
+            if (rc == ERROR_SEM_OWNER_DIED) {
+                /* Previous owner (probably a crashed child) died holding
+                 * the mutex.  Ownership has been passed to us so carry on
+                 * rather than exiting with APEXIT_CHILDFATAL, which would
+                 * make the parent shut the whole server down.
+                 */
+                ap_log_error(APLOG_MARK, APLOG_WARNING, APR_FROM_OS_ERROR(rc),
+                             ap_server_conf,
+                             "accept mutex owner died, recovering");
+                rc = NO_ERROR;
+            }
+
+            if (rc == ERROR_INTERRUPT) {
+                /* Interrupted by a signal, we do not own the mutex */
+                apr_pool_destroy(pconn);
+                continue;               /* Rechecks shutdown_pending */
+            }
+
             if (shutdown_pending) {
-                rc = DosReleaseMutexSem(ap_mpm_accept_mutex);
+                if (rc == NO_ERROR)
+                    DosReleaseMutexSem(ap_mpm_accept_mutex);
+                apr_pool_destroy(pconn);
                 break;
             }
 
@@ -241,7 +257,8 @@ void ap_mpm_child_main(apr_pool_t *pconf)
             }
 
             if (rv == APR_SUCCESS) {
-                if (last_poll_idx >= num_listeners) {
+                /* Round robin across the ready listeners */
+                if (last_poll_idx >= num_poll_results) {
                     last_poll_idx = 0;
                 }
 
@@ -253,6 +270,10 @@ void ap_mpm_child_main(apr_pool_t *pconf)
         }
 
         if (rv != APR_SUCCESS) {
+            /* Connection pool is not handed to a worker, free it now
+             * otherwise it leaks in pchild on every failed accept
+             */
+            apr_pool_destroy(pconn);
             // 2013-03-26 SHL Warn and retry if EAGAIN
             // 2015-02-04 SHL APR_STATUS_IS_EAGAIN updated to include SOCENOBUFS
             if (APR_STATUS_IS_EAGAIN(rv)) {
@@ -379,9 +400,17 @@ void add_worker()
     /* Find a free thread slot */
     for (thread_slot=0; thread_slot < HARD_THREAD_LIMIT; thread_slot++) {
         if (ap_scoreboard_image->servers[child_slot][thread_slot].status == SERVER_DEAD) {
+            int tid;
             ap_scoreboard_image->servers[child_slot][thread_slot].status = SERVER_STARTING;
-            ap_scoreboard_image->servers[child_slot][thread_slot].tid =
-                _beginthread(worker_main, NULL, stacksize, (void *)thread_slot);
+            tid = _beginthread(worker_main, NULL, stacksize, (void *)(long)thread_slot);
+            if (tid == -1) {
+                /* Release slot, otherwise it stays SERVER_STARTING forever */
+                ap_log_error(APLOG_MARK, APLOG_ERR, errno, ap_server_conf,
+                             "unable to start worker thread");
+                ap_scoreboard_image->servers[child_slot][thread_slot].status = SERVER_DEAD;
+            }
+            else
+                ap_scoreboard_image->servers[child_slot][thread_slot].tid = tid;
             break;
         }
     }
@@ -530,7 +559,9 @@ void worker_main(void *vpArg)
     REQUESTDATA rd;
     ULONG len;
     BYTE priority;
-    int thread_slot = (int)vpArg;
+    int thread_slot = (int)(long)vpArg;
+    char queue_name[64];
+    apr_pool_t *pworker;                /* Per thread pool - pchild is shared */
 #ifndef USE_EXCEPTQ
     EXCEPTIONREGISTRATIONRECORD reg_rec = { NULL, thread_exception_handler };
 #else
@@ -545,25 +576,41 @@ void worker_main(void *vpArg)
 //    LoadExceptq(&exRegRec, "I", "Apache2");
 #endif
 
-    osthd = apr_os_thread_current();
-    apr_os_thread_put(&thd, &osthd, pchild);
+    /* Do not allocate from pchild here.  Pools are not thread safe and
+     * several workers can start at once while the accept thread and the
+     * maintenance thread also use pchild.  Subpool creation is serialized
+     * by the parent allocator's mutex, so give each thread its own pool.
+     */
+    apr_allocator_create(&allocator);
+    apr_allocator_max_free_set(allocator, ap_max_mem_free);
+    apr_pool_create_ex(&pworker, pchild, NULL, allocator);
+    apr_pool_tag(pworker, "worker_thread");
+    bucket_alloc = apr_bucket_alloc_create_ex(allocator);
 
-    rc = DosOpenQueue(&owner, &workq,
-                      (PSZ)apr_psprintf(pchild, "/queues/httpd/work.%d", getpid()));
+    osthd = apr_os_thread_current();
+    apr_os_thread_put(&thd, &osthd, pworker);
+
+    apr_snprintf(queue_name, sizeof(queue_name), "/queues/httpd/work.%d", getpid());
+    rc = DosOpenQueue(&owner, &workq, (PSZ)queue_name);
 
     if (rc) {
         ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc), ap_server_conf, APLOGNO(00196)
                      "unable to open work queue, exiting");
-        ap_scoreboard_image->servers[child_slot][thread_slot].tid = 0;
+        /* Do not mark ready or read from an invalid queue handle */
+        ap_update_child_status_from_indexes(child_slot, thread_slot, SERVER_DEAD,
+                                            NULL);
+        apr_bucket_alloc_destroy(bucket_alloc);
+        apr_pool_destroy(pworker);
+        apr_allocator_destroy(allocator);
+#ifndef USE_EXCEPTQ
+        DosUnsetExceptionHandler(&reg_rec);
+#endif
+        return;
     }
 
     conn_id = ID_FROM_CHILD_THREAD(child_slot, thread_slot);
     ap_update_child_status_from_indexes(child_slot, thread_slot, SERVER_READY,
                                         NULL);
-
-    apr_allocator_create(&allocator);
-    apr_allocator_max_free_set(allocator, ap_max_mem_free);
-    bucket_alloc = apr_bucket_alloc_create_ex(allocator);
 
     while (rc = DosReadQueue(workq, &rd, &len, (PPVOID)&worker_args, 0, DCWW_WAIT, &priority, NULLHANDLE),
            rc == 0 && rd.ulData != WORKTYPE_EXIT)
@@ -602,6 +649,7 @@ void worker_main(void *vpArg)
 
     apr_bucket_alloc_destroy(bucket_alloc);
 
+    apr_pool_destroy(pworker);          /* Before its allocator */
     apr_allocator_destroy(allocator);
 
 #ifdef CHECK_EXCEPTION_CHAIN // 2013-03-27 SHL
@@ -638,14 +686,17 @@ void server_maintenance(void *vpArg)
 {
     int num_idle, num_needed;
     int num_alive;                      // 2022-05-07 SHL
-    ULONG num_pending = 0;
+    ULONG ul_pending = 0;
+    int num_pending;                    /* Signed copy - see below */
     int threadnum;
+    char queue_name[64];
     HQUEUE workq;
     ULONG rc;
     PID owner;
 
-    rc = DosOpenQueue(&owner, &workq,
-                      (PSZ)apr_psprintf(pchild, "/queues/httpd/work.%d", getpid()));
+    /* Not apr_psprintf(pchild) - pchild is shared with other threads */
+    apr_snprintf(queue_name, sizeof(queue_name), "/queues/httpd/work.%d", getpid());
+    rc = DosOpenQueue(&owner, &workq, (PSZ)queue_name);
 
     if (rc) {
         ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc), ap_server_conf, APLOGNO(00197)
@@ -661,7 +712,7 @@ void server_maintenance(void *vpArg)
         }
 
         /* 2015-02-03 SHL Handle errors */
-        rc = DosQueryQueue(workq, &num_pending);
+        rc = DosQueryQueue(workq, &ul_pending);
         if (rc != NO_ERROR) {
             ap_log_error(APLOG_MARK, APLOG_ERR, APR_FROM_OS_ERROR(rc),
                          ap_server_conf,
@@ -669,6 +720,12 @@ void server_maintenance(void *vpArg)
             DosSleep(1000);             /* Avoid hogging */
             continue;
         }
+
+        /* Use a signed value.  With the ULONG, num_idle - num_pending wrapped
+         * to a huge unsigned number whenever requests were queued, so the
+         * thread pool was told to shrink exactly when it was busiest.
+         */
+        num_pending = (int)ul_pending;
 
         // 2022-05-07 SHL Honor ap_thread_limit
         if (num_alive >= ap_thread_limit)

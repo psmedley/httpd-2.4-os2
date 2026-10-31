@@ -846,6 +846,21 @@ int ap_signal_server(int *exit_status, apr_pool_t *pconf)
                                   "httpd (pid %" APR_PID_T_FMT "?) not running",
                                   otherpid);
         }
+#else /* __OS2__ */
+        /* kill(pid, 0) is not used to probe the pid on OS/2.  Previously
+         * this left status uninitialized (so "-k stop" printed a garbage
+         * pointer) and running == 0 (so stop/restart/graceful never sent a
+         * signal).  Assume a pid file means a running server when asked to
+         * signal it - send_signal() reports an error if it is stale - but
+         * do not let a stale pid file left behind by a crash block a start.
+         */
+        running = otherpid != getpid() &&
+                  dash_k_arg != dash_k_arg_noarg &&
+                  strcmp(dash_k_arg, "start") != 0;
+        status = apr_psprintf(pconf,
+                              "httpd (pid %" APR_PID_T_FMT ") %s",
+                              otherpid,
+                              running ? "assumed running" : "not running");
 #endif
     }
 
