@@ -253,19 +253,25 @@ void ap_mpm_child_main(apr_pool_t *pconf)
                 dbg_num_polls++;
 #               endif
                 rv = apr_pollset_poll(pollset, -1, &num_poll_results, &poll_results);
-                rc = DosReleaseMutexSem(ap_mpm_accept_mutex);
-            }
 
-            if (rv == APR_SUCCESS) {
-                /* Round robin across the ready listeners */
-                if (last_poll_idx >= num_poll_results) {
-                    last_poll_idx = 0;
+                if (rv == APR_SUCCESS) {
+                    /* Round robin across the ready listeners */
+                    if (last_poll_idx >= num_poll_results) {
+                        last_poll_idx = 0;
+                    }
+
+                    lr = poll_results[last_poll_idx++].client_data;
+                    /* Accept while still holding the accept mutex, as prefork
+                     * does.  Releasing it between poll and accept let another
+                     * child poll the same pending connection, and as the
+                     * listeners are non-blocking when there are several
+                     * (AP_NONBLOCK_WHEN_MULTI_LISTEN) the loser of the race
+                     * got SOCEWOULDBLOCK (OS 10035) from accept.
+                     */
+                    rv = apr_socket_accept(&worker_args->conn_sd, lr->sd, pconn);
                 }
 
-                lr = poll_results[last_poll_idx++].client_data;
-                rv = apr_socket_accept(&worker_args->conn_sd, lr->sd, pconn);
-                // 2014-11-30 SHL FIXME to be gone - spurious - see worker.c
-                // last_poll_idx++;
+                rc = DosReleaseMutexSem(ap_mpm_accept_mutex);
             }
         }
 
@@ -277,8 +283,15 @@ void ap_mpm_child_main(apr_pool_t *pconf)
             // 2013-03-26 SHL Warn and retry if EAGAIN
             // 2015-02-04 SHL APR_STATUS_IS_EAGAIN updated to include SOCENOBUFS
             if (APR_STATUS_IS_EAGAIN(rv)) {
-                ap_log_error(APLOG_MARK, APLOG_NOTICE, rv, ap_server_conf,
-                             "apr_socket_accept");
+                /* With several (non-blocking) listeners EWOULDBLOCK is still
+                 * expected if the client reset the connection between poll
+                 * and accept, so do not alarm the admin.  With a single
+                 * (blocking) listener EAGAIN means a real resource shortage
+                 * such as SOCENOBUFS, so keep reporting it.
+                 */
+                ap_log_error(APLOG_MARK,
+                             num_listeners > 1 ? APLOG_DEBUG : APLOG_NOTICE,
+                             rv, ap_server_conf, "apr_socket_accept");
                 apr_sleep(5 * 1000L);
             }
             else if (!APR_STATUS_IS_EINTR(rv)) {
