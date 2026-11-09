@@ -1654,6 +1654,8 @@ MDRenewWindow 10%</pre>
 <tr><th><a href="directive-dict.html#Context">Contexte:</a></th><td>configuration globale</td></tr>
 <tr><th><a href="directive-dict.html#Status">Statut:</a></th><td>Exp&eacute;rimental</td></tr>
 <tr><th><a href="directive-dict.html#Module">Module:</a></th><td>mod_md</td></tr>
+<tr><th><a href="directive-dict.html#Compatibility">Compatibilit&eacute;:</a></th><td>La valeur par d&eacute;faut est &laquo;&nbsp;off&nbsp;&raquo; &agrave; partir de la version
+	2.4.69 du serveur HTTP Apache</td></tr>
 </table>
 	    <p>Si cette directive est activ&eacute;e, une section est ajout&eacute;e au
 	    gestionnaire &laquo;&nbsp;<code>server-status</code>&nbsp;&raquo; de
