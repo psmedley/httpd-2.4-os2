@@ -314,6 +314,7 @@ static apr_status_t socache_dbm_store(ap_socache_instance_t *ctx,
                          "Cannot open socache DBM file `%s' for writing "
                          "(store)",
                          ctx->data_file);
+            free(dbmval.dptr);          /* As non-OS/2 path does */
             return rv;
         }
         if (retries > 0) {

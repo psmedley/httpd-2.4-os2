@@ -26,6 +26,22 @@
 #ifndef APACHE_MPM_DEFAULT_H
 #define APACHE_MPM_DEFAULT_H
 
+/* We don't need many processes,
+ * they're only for redundancy in the event of a crash.
+ * Shared by mpmt_os2.c and mpmt_os2_child.c - keep in one place so that the
+ * scoreboard size reported by the parent matches what the children use.
+ */
+#ifndef HARD_SERVER_LIMIT
+#define HARD_SERVER_LIMIT 10
+#endif
+
+/* Limit on the total number of threads per process
+ * 2014-11-30 SHL 254 to avoid VIO per session thread limit
+ */
+#ifndef HARD_THREAD_LIMIT
+#define HARD_THREAD_LIMIT 254
+#endif
+
 /* Number of servers processes to spawn off by default
  */
 #ifndef DEFAULT_START_DAEMON

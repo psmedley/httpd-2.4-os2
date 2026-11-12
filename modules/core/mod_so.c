@@ -162,12 +162,12 @@ static int update_beginlibpath(cmd_parms *cmd, const char *fullname, int isPathL
     unsigned int old_blp_len;
     unsigned int new_blp_len;
     APIRET apiret;
-    char *suffix = ";%BEGINLIBPATH%";
+    char *suffix = ";%BEGINLIBPATH%";   /* Expanded by kernel to existing value */
 
     new_blp_len = strlen(fullname);
     if (new_blp_len >= BLP_BUF_BYTES) {
 	ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01578)
-		     "update_beginlibpath argument is %u bytes which exceeds %u limit\n", new_blp_len, BLP_BUF_BYTES - 1);
+		     "update_beginlibpath argument is %u bytes which exceeds %u limit", new_blp_len, BLP_BUF_BYTES - 1);
 	return -1;
     }
     strcpy(dir, fullname);
@@ -202,14 +202,17 @@ static int update_beginlibpath(cmd_parms *cmd, const char *fullname, int isPathL
 	  return 0;                     /* Already in BEGINLIBPATH - ignore silently */
     }
 
+    /* The kernel limit applies to the resulting (expanded) string, i.e.
+     * dir;old_beginlibpath, so check that rather than dir;%BEGINLIBPATH%
+     */
     old_blp_len = strlen(beginlibpath);
     if (old_blp_len)
-      new_blp_len += strlen(suffix);
+      new_blp_len += 1 + old_blp_len;   /* ; plus existing value */
 
     if (new_blp_len >= BLP_BUF_BYTES) {
 	if (isPathList) {
 	    ap_log_perror(APLOG_MARK, APLOG_ERR, 0, cmd->pool, APLOGNO(01578)
-		          "update_beginlibpath argument is %u bytes which exceeds %u limit\n", new_blp_len, BLP_BUF_BYTES);
+		          "update_beginlibpath result would be %u bytes which exceeds %u limit", new_blp_len, BLP_BUF_BYTES - 1);
 	return -1;
 	}
 	return 0;                       /* Fail silently if too long */
@@ -237,7 +240,7 @@ static int update_beginlibpath(cmd_parms *cmd, const char *fullname, int isPathL
 #ifdef __OS2__ /* 2022-05-25 SHL BeginLibPath */
 
 /*
- * This is called for the directive BegnLibPath and passes
+ * This is called for the directive BeginLibPath and passes
  * path the BEGINLIBPATH via DosSetExtLIBPATH
  */
 
