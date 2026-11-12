@@ -1065,7 +1065,7 @@ static apr_status_t consume_zlib_flags(deflate_ctx *ctx,
             if (!*len) {
                 return APR_INCOMPLETE;
             }
-            ctx->consume_len = (unsigned int)**data;
+            ctx->consume_len = (unsigned int)(unsigned char)**data;
             ctx->consume_pos++;
             ++*data;
             --*len;
@@ -1074,7 +1074,7 @@ static apr_status_t consume_zlib_flags(deflate_ctx *ctx,
             if (!*len) {
                 return APR_INCOMPLETE;
             }
-            ctx->consume_len += ((unsigned int)**data) << 8;
+            ctx->consume_len += ((unsigned int)(unsigned char)**data) << 8;
             ctx->consume_pos++;
             ++*data;
             --*len;
