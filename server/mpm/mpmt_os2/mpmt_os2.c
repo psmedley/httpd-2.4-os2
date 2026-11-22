@@ -75,6 +75,17 @@ int ap_max_spare_threads = 0;
 /* Keep track of a few interesting statistics */
 int ap_max_daemons_limit = 0;
 
+/* Respawn backoff.  If children keep dying soon after they start (e.g. every
+ * child traps on the same persistent error) respawning them once a second
+ * produces a trap report per second for as long as the condition lasts.
+ * Back off exponentially instead, and reset once a child survives.
+ */
+#define CHILD_QUICK_DEATH_TIME  apr_time_from_sec(10) /* died sooner = failure */
+#define CHILD_BACKOFF_MAX       apr_time_from_sec(60) /* longest wait */
+static apr_time_t child_start_time[HARD_SERVER_LIMIT];
+static int child_quick_deaths = 0;      /* consecutive quick failures */
+static apr_time_t next_spawn_time = 0;  /* do not spawn before this */
+
 /* volatile just in case */
 static int volatile shutdown_pending;
 static int volatile restart_pending;
@@ -332,8 +343,11 @@ static int master_main()
                 !ap_scoreboard_image->parent[slot].quiescing;
         }
 
-        /* Spawn children if needed */
-        for (slot=0; slot < HARD_SERVER_LIMIT && active_children < ap_daemons_to_start; slot++) {
+        /* Spawn children if needed, unless backing off after repeated
+         * quick failures
+         */
+        for (slot=0; slot < HARD_SERVER_LIMIT && active_children < ap_daemons_to_start &&
+                     apr_time_now() >= next_spawn_time; slot++) {
             if (ap_scoreboard_image->parent[slot].pid == 0) {
                 spawn_child(slot);
                 active_children++;
@@ -349,6 +363,39 @@ static int master_main()
                 ;                       // Keep looking
 
             if (slot < HARD_SERVER_LIMIT) {
+                apr_time_t lifetime = apr_time_now() - child_start_time[slot];
+                int failed = !(proc_rc.codeTerminate == TC_EXIT &&
+                               proc_rc.codeResult == 0);
+
+                /* Only children of the current generation count, children
+                 * of an earlier generation are expected to exit after a
+                 * restart however long they ran
+                 */
+                if (ap_scoreboard_image->parent[slot].generation == ap_my_generation) {
+                    if (failed && lifetime < CHILD_QUICK_DEATH_TIME) {
+                        apr_time_t delay;
+
+                        child_quick_deaths++;
+                        delay = apr_time_from_sec(1) << (child_quick_deaths < 7 ? child_quick_deaths - 1 : 6);
+                        if (delay > CHILD_BACKOFF_MAX)
+                            delay = CHILD_BACKOFF_MAX;
+                        next_spawn_time = apr_time_now() + delay;
+                        ap_log_error(APLOG_MARK, APLOG_WARNING, 0, ap_server_conf,
+                                     "child pid %lu exited after %" APR_TIME_T_FMT
+                                     " ms (termination code %lu, result %lu), "
+                                     "%d quick failures in a row, waiting %"
+                                     APR_TIME_T_FMT " seconds before respawning",
+                                     (unsigned long)child_pid,
+                                     apr_time_as_msec(lifetime),
+                                     proc_rc.codeTerminate, proc_rc.codeResult,
+                                     child_quick_deaths, apr_time_sec(delay));
+                    }
+                    else if (lifetime >= CHILD_QUICK_DEATH_TIME) {
+                        child_quick_deaths = 0;   /* It was healthy for a while */
+                        next_spawn_time = 0;
+                    }
+                }
+
                 ap_scoreboard_image->parent[slot].pid = 0;
                 ap_scoreboard_image->parent[slot].quiescing = 0;
 
@@ -392,6 +439,7 @@ static void spawn_child(int slot)
     ULONG rc;
 
     ap_scoreboard_image->parent[slot].generation = ap_my_generation;
+    child_start_time[slot] = apr_time_now();
     DosGetInfoBlocks(&ptib, &ppib);
     DosQueryModuleName(ppib->pib_hmte, sizeof(progname), progname);
     rc = DosExecPgm(fail_module, sizeof(fail_module), EXEC_ASYNCRESULT,
